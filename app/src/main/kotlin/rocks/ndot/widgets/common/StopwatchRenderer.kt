@@ -46,31 +46,83 @@ object StopwatchRenderer {
         return bmp
     }
 
-    /**
-     * Draws straight onto any canvas. The full-screen face uses this directly so a 60fps
-     * sweep doesn't allocate and discard a bitmap on every single frame.
-     */
-    fun draw(c: Canvas, widthPx: Int, heightPx: Int, face: Face, dial: Dial, accent: Int) {
+    /** The width:height the watch fills best: a round case plus the crown above it. */
+    const val ASPECT = 0.83f
+
+    class Geometry(val cx: Float, val cy: Float, val r: Float, val crownZone: Float) {
+        /** The crown's touch target: the bow, the crown and the stem above the case. */
+        fun crownHit(x: Float, y: Float, minHalf: Float): Boolean {
+            val half = maxOf(r * 0.26f, minHalf)
+            return x in (cx - half)..(cx + half) && y in 0f..(crownZone + r * 0.06f)
+        }
+
+        val pusherTipX: Float get() = cx + cos(PUSHER_ANGLE).toFloat() * r * 1.17f
+        val pusherTipY: Float get() = cy + sin(PUSHER_ANGLE).toFloat() * r * 1.17f
+
+        fun pusherHit(x: Float, y: Float, minRadius: Float): Boolean {
+            val dx = x - pusherTipX
+            val dy = y - pusherTipY
+            val reach = maxOf(r * 0.22f, minRadius)
+            return dx * dx + dy * dy <= reach * reach
+        }
+    }
+
+    private val PUSHER_ANGLE = (-52.0) * PI / 180.0
+
+    fun geometry(widthPx: Int, heightPx: Int): Geometry {
         val w = widthPx.toFloat()
         val h = heightPx.toFloat()
-
         // The crown and bow sit above the case, so the case can't simply be centred.
         val crownZone = h * 0.17f
         val caseD = minOf(w, h - crownZone) * 0.97f
         val r = caseD / 2f
-        val cx = w / 2f
-        val cy = crownZone + r
+        return Geometry(w / 2f, crownZone + r, r, crownZone)
+    }
 
-        drawBow(c, cx, crownZone, r, dial)
-        drawPusher(c, cx, cy, r, dial)
-        drawCase(c, cx, cy, r, dial)
-        drawDialFace(c, cx, cy, r, dial)
-        drawSecondsTrack(c, cx, cy, r, dial)
-        drawSubDial(c, cx, cy, r, face, dial)
-        drawSignature(c, cx, cy, r, dial)
-        drawSplitHand(c, cx, cy, r, face, accent)
-        drawSecondHand(c, cx, cy, r, face, dial)
-        drawCrystal(c, cx, cy, r)
+    /** Everything, in one pass - what the widget uses, since it redraws once a second at most. */
+    fun draw(c: Canvas, widthPx: Int, heightPx: Int, face: Face, dial: Dial, accent: Int) {
+        val g = geometry(widthPx, heightPx)
+        drawControls(c, g, dial, 0f, 0f)
+        drawBody(c, g, dial)
+        drawHands(c, g, face, dial, accent)
+    }
+
+    /**
+     * The crown and the side pusher, which sit behind the case. [crownPress] and [pusherPress]
+     * run 0..1 and push them into the case, so the full-screen watch can animate a real press.
+     */
+    fun drawControls(c: Canvas, g: Geometry, dial: Dial, crownPress: Float, pusherPress: Float) {
+        c.save()
+        c.translate(0f, crownPress * g.r * 0.05f)
+        drawBow(c, g.cx, g.crownZone, g.r, dial)
+        c.restore()
+        c.save()
+        val inward = pusherPress * g.r * 0.06f
+        c.translate(-cos(PUSHER_ANGLE).toFloat() * inward, -sin(PUSHER_ANGLE).toFloat() * inward)
+        drawPusher(c, g.cx, g.cy, g.r, dial)
+        c.restore()
+    }
+
+    /**
+     * Case, dial, graduations, register and signature: everything that never moves. The
+     * full-screen face renders this once into a bitmap and blits it each frame; redrawing three
+     * hundred graduations and a dozen gradients sixty times a second is what made the old
+     * full-screen watch stutter.
+     */
+    fun drawBody(c: Canvas, g: Geometry, dial: Dial) {
+        drawCase(c, g.cx, g.cy, g.r, dial)
+        drawDialFace(c, g.cx, g.cy, g.r, dial)
+        drawSecondsTrack(c, g.cx, g.cy, g.r, dial)
+        drawSubDialMarks(c, g.cx, g.cy, g.r, dial)
+        drawSignature(c, g.cx, g.cy, g.r, dial)
+    }
+
+    /** The moving parts, plus the crystal's sheen, which has to sit on top of them. */
+    fun drawHands(c: Canvas, g: Geometry, face: Face, dial: Dial, accent: Int) {
+        drawSubDialHand(c, g.cx, g.cy, g.r, face, dial)
+        drawSplitHand(c, g.cx, g.cy, g.r, face, accent)
+        drawSecondHand(c, g.cx, g.cy, g.r, face, dial)
+        drawCrystal(c, g.cx, g.cy, g.r)
     }
 
     // -- case ---------------------------------------------------------------------------
@@ -120,7 +172,7 @@ object StopwatchRenderer {
 
     /** The side pusher, at roughly one o'clock. */
     private fun drawPusher(c: Canvas, cx: Float, cy: Float, r: Float, dial: Dial) {
-        val angle = (-52.0) * PI / 180.0
+        val angle = PUSHER_ANGLE
         val baseX = cx + cos(angle).toFloat() * r * 0.97f
         val baseY = cy + sin(angle).toFloat() * r * 0.97f
         val tipX = cx + cos(angle).toFloat() * r * 1.17f
@@ -246,8 +298,8 @@ object StopwatchRenderer {
         }
     }
 
-    /** The 30-minute register at twelve o'clock, with its own hand. */
-    private fun drawSubDial(c: Canvas, cx: Float, cy: Float, r: Float, face: Face, dial: Dial) {
+    /** The 30-minute register at twelve o'clock: its recess, ticks and numerals. */
+    private fun drawSubDialMarks(c: Canvas, cx: Float, cy: Float, r: Float, dial: Dial) {
         val ink = inkColor(dial)
         val subR = r * 0.200f
         val subCy = cy - r * 0.340f
@@ -305,12 +357,20 @@ object StopwatchRenderer {
             }
             c.drawText("MIN", cx, subCy - subR * 0.42f, label)
         }
+    }
 
-        // Minute hand: advances a thirtieth of a turn per minute, wrapping at half an hour.
+    /** The register's hand: a thirtieth of a turn per minute, wrapping at half an hour. */
+    private fun drawSubDialHand(c: Canvas, cx: Float, cy: Float, r: Float, face: Face, dial: Dial) {
+        val ink = inkColor(dial)
+        val subR = r * 0.200f
+        val subCy = cy - r * 0.340f
+
         val minutes = (face.elapsedMs / 60_000.0) % 30.0
         val deg = (minutes * 12.0).toFloat() - 90f
         val rad = deg * PI.toFloat() / 180f
-        val hand = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val hand = handPaint.apply {
+            reset()
+            isAntiAlias = true
             color = ink
             strokeWidth = maxOf(1.6f, r * 0.020f)
             strokeCap = Paint.Cap.ROUND
@@ -320,8 +380,8 @@ object StopwatchRenderer {
             cx + cos(rad) * subR * 0.74f, subCy + sin(rad) * subR * 0.74f,
             hand
         )
-        val pin = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink }
-        c.drawCircle(cx, subCy, subR * 0.085f, pin)
+        hand.style = Paint.Style.FILL
+        c.drawCircle(cx, subCy, subR * 0.085f, hand)
     }
 
     private fun drawSignature(c: Canvas, cx: Float, cy: Float, r: Float, dial: Dial) {
@@ -359,15 +419,18 @@ object StopwatchRenderer {
         val deg = ((face.elapsedMs % 60_000L) / 60_000.0 * 360.0).toFloat() - 90f
         val handColor = if (dial == Dial.BLACK) 0xFFF6F6F4.toInt() else 0xFF1A1A1C.toInt()
 
-        // Cast a soft shadow first so the hand lifts off the dial.
-        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(60, 0, 0, 0)
-            maskFilter = android.graphics.BlurMaskFilter(r * 0.02f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+        // Cast a soft shadow first so the hand lifts off the dial. Hardware canvases only honour
+        // a blur mask from API 28; below that it would be a hard second hand, so it's left out.
+        if (!c.isHardwareAccelerated || android.os.Build.VERSION.SDK_INT >= 28) {
+            if (shadowRadius != r) {
+                shadowRadius = r
+                shadowPaint.maskFilter = android.graphics.BlurMaskFilter(r * 0.02f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+            }
+            c.save()
+            c.translate(r * 0.012f, r * 0.018f)
+            c.drawPath(needlePath(cx, cy, r, deg, r * 0.020f, 0.845f), shadowPaint)
+            c.restore()
         }
-        c.save()
-        c.translate(r * 0.012f, r * 0.018f)
-        needlePath(cx, cy, r, deg, r * 0.020f, 0.845f).let { c.drawPath(it, shadow) }
-        c.restore()
 
         drawNeedle(c, cx, cy, r, deg, handColor, r * 0.020f, 0.845f)
 
@@ -389,9 +452,16 @@ object StopwatchRenderer {
     private fun drawNeedle(
         c: Canvas, cx: Float, cy: Float, r: Float, deg: Float, color: Int, halfWidth: Float, reach: Float,
     ) {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
-        c.drawPath(needlePath(cx, cy, r, deg, halfWidth, reach), paint)
+        needlePaint.color = color
+        c.drawPath(needlePath(cx, cy, r, deg, halfWidth, reach), needlePaint)
     }
+
+    // Reused across frames. Every caller draws on the main thread, widgets included.
+    private val handPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val needlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 0, 0, 0) }
+    private var shadowRadius = -1f
+    private val needle = Path()
 
     /** A tapered needle with a short counterweight tail, like a real chronograph hand. */
     private fun needlePath(cx: Float, cy: Float, r: Float, deg: Float, halfWidth: Float, reach: Float): Path {
@@ -404,7 +474,8 @@ object StopwatchRenderer {
         val tipR = r * reach
         val tailR = r * 0.17f
 
-        return Path().apply {
+        return needle.apply {
+            reset()
             moveTo(cx + dx * tipR, cy + dy * tipR)
             lineTo(cx + dx * tipR * 0.22f + px * halfWidth, cy + dy * tipR * 0.22f + py * halfWidth)
             lineTo(cx - dx * tailR + px * halfWidth * 1.7f, cy - dy * tailR + py * halfWidth * 1.7f)

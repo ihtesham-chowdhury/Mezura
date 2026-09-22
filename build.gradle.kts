@@ -8,4 +8,7 @@ plugins {
     // for why. Drop this plugin line (and those two properties) if you'd rather use AGP's
     // new built-in Kotlin support directly.
     id("org.jetbrains.kotlin.android") version "2.4.0" apply false
+    // The in-app instruments are Jetpack Compose. Since Kotlin 2.0 the Compose compiler ships
+    // with Kotlin itself, so this must always be exactly the Kotlin version above.
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.0" apply false
 }

@@ -5,8 +5,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- The timer runs as a foreground service while counting down, so it can repaint the
-         widgets' fill level; Android has no dedicated "timer" service type, so specialUse it is -->
+    <!-- The timer runs as a foreground service while something is counting, so it can repaint
+         the widgets and finish a timer on time with the app closed; Android has no dedicated
+         "timer" service type, so specialUse it is -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
@@ -24,15 +25,28 @@
         android:theme="@style/Theme.NdotWidgets"
         android:supportsRtl="true">
 
+        <!-- The instruments app itself: one Compose activity, drawn edge to edge. singleTop so
+             a widget or notification opening a particular instrument reuses the running
+             screen instead of stacking another copy on top of it. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.NdotWidgets">
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Ndot.Instruments">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The old settings screen, now just for the home-screen widgets. -->
+        <activity
+            android:name=".WidgetSettingsActivity"
+            android:exported="false"
+            android:label="@string/widget_settings_title"
+            android:theme="@style/Theme.NdotWidgets" />
 
         <activity
             android:name=".ui.ConfigureSundialActivity"
@@ -53,11 +67,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".ui.StopwatchActivity"
-            android:exported="false"
-            android:theme="@style/Theme.NdotWidgets" />
 
         <service
             android:name=".widgets.TimerService"

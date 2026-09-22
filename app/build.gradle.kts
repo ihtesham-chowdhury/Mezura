@@ -16,6 +16,7 @@ val hasReleaseSigning = keystoreProperties.getProperty("storeFile") != null
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -26,8 +27,8 @@ android {
         applicationId = "rocks.ndot.widgets"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
     }
 
     signingConfigs {
@@ -55,7 +56,9 @@ android {
     }
 
     buildFeatures {
+        // View binding for the widget configuration screens, Compose for the instruments.
         viewBinding = true
+        compose = true
     }
 }
 
@@ -69,7 +72,7 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.13.0")
     implementation("androidx.constraintlayout:constraintlayout:2.2.1")
@@ -84,6 +87,16 @@ dependencies {
 
     // Coroutines, used by the WorkManager CoroutineWorkers.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Jetpack Compose, for the instruments app. Pinned to the newest line that still builds
+    // against compileSdk 36: Compose 1.12 and Lifecycle 2.11 require compileSdk 37, which
+    // this machine's SDK doesn't have yet. Material 3 is deliberately absent - every control
+    // here is drawn to match its instrument, so a Material look would be something to fight.
+    implementation("androidx.activity:activity-compose:1.12.4")
+    implementation("androidx.compose.ui:ui:1.11.4")
+    implementation("androidx.compose.foundation:foundation:1.11.4")
+    implementation("androidx.compose.animation:animation:1.11.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

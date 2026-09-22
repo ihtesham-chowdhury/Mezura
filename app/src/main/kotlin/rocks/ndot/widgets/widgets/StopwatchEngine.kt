@@ -78,12 +78,28 @@ object StopwatchEngine {
     /** The most recent lap, which the face shows as a frozen second hand. */
     fun lastLap(context: Context): Long? = laps(context).lastOrNull()
 
+    /** Everything a face needs, read once, so a 120Hz redraw doesn't hit SharedPreferences. */
+    data class Snapshot(val running: Boolean, val startedAt: Long, val accumulated: Long, val laps: List<Long>) {
+        fun elapsedAt(now: Long): Long = if (running) accumulated + (now - startedAt) else accumulated
+    }
+
+    fun snapshot(context: Context): Snapshot {
+        val p = prefs(context)
+        return Snapshot(
+            running = p.getBoolean(KEY_RUNNING, false),
+            startedAt = p.getLong(KEY_STARTED_AT, System.currentTimeMillis()),
+            accumulated = p.getLong(KEY_ACCUMULATED, 0L),
+            laps = laps(context),
+        )
+    }
+
     /** mm:ss.t - tenths, which is what the dial's 1/5 second graduation implies. */
     fun format(elapsedMs: Long): String {
         val totalSeconds = elapsedMs / 1000
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         val tenths = (elapsedMs % 1000) / 100
+        if (minutes >= 60) return "%d:%02d:%02d.%d".format(minutes / 60, minutes % 60, seconds, tenths)
         return "%02d:%02d.%d".format(minutes, seconds, tenths)
     }
 }

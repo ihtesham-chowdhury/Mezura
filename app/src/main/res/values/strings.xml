@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Ndot Widgets</string>
+    <string name="app_name">Ndot</string>
+    <string name="widget_settings_title">Widget settings</string>
     <string name="status_on">on</string>
     <string name="status_off">off</string>
 
@@ -31,7 +32,7 @@
     <string name="settings_stopwatch">Stopwatch</string>
     <string name="settings_stopwatch_caption">Counts up, with laps. Tap the dial on your home screen to start and stop it; tap the crown to open the full-size face, where the hand sweeps smoothly and the pusher clicks.</string>
     <string name="settings_dial">Dial</string>
-    <string name="settings_open_stopwatch">Open the stopwatch</string>
+    <string name="settings_open_stopwatch">Open the stopwatch in the app</string>
 
     <string name="settings_other_widgets">Age in Motion and Sun Dial</string>
     <string name="settings_other_widgets_caption">Age in Motion shows your age; tap it to cycle through years, weeks, days and more. Sun Dial fills as the sun crosses the sky. Both are set up when you first place them.</string>
@@ -45,17 +46,15 @@
     <string name="pomodoro_channel_name">Timer alerts</string>
     <string name="pomodoro_notif_work_title">Focus time</string>
     <string name="pomodoro_notif_break_title">Take a break</string>
+    <string name="pomodoro_notif_done_title">Set complete. Nice work.</string>
+    <string name="hourglass_notif_title">Time\'s up</string>
+    <string name="hourglass_running">Hourglass</string>
 
     <!-- Stopwatch -->
     <string name="stopwatch_widget_desc">A mechanical stopwatch with laps.</string>
     <string name="stopwatch_desc">Stopwatch</string>
     <string name="stopwatch_open_desc">Open the full stopwatch</string>
     <string name="stopwatch_running">Stopwatch</string>
-    <string name="stopwatch_start">Start</string>
-    <string name="stopwatch_stop">Stop</string>
-    <string name="stopwatch_lap">Lap</string>
-    <string name="stopwatch_reset">Reset</string>
-    <string name="stopwatch_lap_row">%1$d   +%2$s   %3$s</string>
     <string name="stopwatch_dial_black">Black dial</string>
     <string name="stopwatch_dial_white">White dial</string>
 

@@ -12,12 +12,12 @@ import rocks.ndot.widgets.R
 import rocks.ndot.widgets.common.Appearance
 import rocks.ndot.widgets.common.StopwatchRenderer
 import rocks.ndot.widgets.common.WidgetSizing
-import rocks.ndot.widgets.ui.StopwatchActivity
+import rocks.ndot.widgets.MainActivity
 
 /**
  * The stopwatch on the home screen. Tapping the face starts and stops it; tapping the crown
- * area opens [StopwatchActivity], where the sweep is actually smooth and laps and click sounds
- * live.
+ * area opens the stopwatch in the app, where the sweep is actually smooth and laps and click
+ * sounds live.
  *
  * While it runs, [TimerService] repaints it once a second. That is the honest ceiling for a
  * widget host - a real sweep would need sixty pushes a second through binder, which no
@@ -76,7 +76,7 @@ class StopwatchWidgetProvider : AppWidgetProvider() {
                 R.id.stopwatchOpen,
                 PendingIntent.getActivity(
                     context, id + 6_000_000,
-                    Intent(context, StopwatchActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    MainActivity.openIntent(context, "stopwatch"),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
             )

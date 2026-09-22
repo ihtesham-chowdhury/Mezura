@@ -6,7 +6,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import rocks.ndot.widgets.widgets.AgeWidgetProvider
+import rocks.ndot.widgets.widgets.HourglassEngine
 import rocks.ndot.widgets.widgets.HourglassWidgetProvider
+import rocks.ndot.widgets.widgets.PomodoroNotifier
 import rocks.ndot.widgets.widgets.StopwatchWidgetProvider
 import rocks.ndot.widgets.widgets.SundialWidgetProvider
 import rocks.ndot.widgets.widgets.TimerEngine
@@ -31,10 +33,11 @@ class BootReceiver : BroadcastReceiver() {
 
                 // If a session was mid-flight, pick it back up; if it had already run out
                 // while the phone was off, roll it on to the next phase first.
-                if (TimerEngine.isRunning(context) && TimerEngine.remainingMs(context) <= 0L) {
-                    TimerEngine.advancePhase(context)
+                TimerEngine.advanceIfDue(context)
+                if (HourglassEngine.isRunning(context) && HourglassEngine.remainingMs(context) <= 0L) {
+                    if (HourglassEngine.finish(context)) PomodoroNotifier.notifyHourglassDone(context)
                 }
-                // Covers a focus session or a stopwatch that was still running.
+                // Covers a focus session, an hourglass or a stopwatch that was still running.
                 TimerService.syncToState(context)
 
                 rearmPeriodicWork(context)
