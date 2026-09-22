@@ -1,5 +1,11 @@
 # Building a signed APK
 
+> **Note for this project:** the keystore was created as `ndot-release` - no file extension.
+> A `*.jks` ignore rule does **not** match that, so it is now named explicitly in
+> `.gitignore` too. Better still, move it out of the repo folder entirely (see the bottom of
+> this file); a signing key living inside the project directory is one careless `git add -A`
+> away from being published.
+
 ## Does one already exist?
 
 No. The only APK in this project is a **debug** build at
@@ -109,11 +115,20 @@ versionCode = 2        // must increase every release
 versionName = "1.1"    // the human-readable one
 ```
 
-## Don't lose the keystore
+## Keep the keystore somewhere safer
 
-If you lose `ndot-release.jks` or forget its password, you can never update an already
-installed copy of the app again — Android will only accept an update signed with the same key.
-Back the file up somewhere that isn't just this machine, and store the passwords with it.
+Right now `ndot-release` sits in the project folder. Move it outside the repo and point
+at it with an absolute path in `keystore.properties`:
+
+```properties
+storeFile=C:/Users/The System Admin/keys/ndot-release
+```
+
+(Forward slashes work fine on Windows and avoid backslash-escaping trouble.)
+
+If you lose that file or forget its password, you can never update an already installed
+copy of the app again - Android only accepts updates signed with the same key. Back it up
+somewhere that isn't just this machine, and store the passwords with it.
 
 **APK vs App Bundle:** the dialog offers both. Choose **APK**. App Bundles (`.aab`) are only
 for uploading to the Play Store — you can't install one on a phone directly.
