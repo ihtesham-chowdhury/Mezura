@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App chrome (Activities, not widgets - the widgets stay dark in both themes, they're
+         drawn as physical objects; see each widget's own drawable resources for those). -->
+    <color name="brand_red">#D71921</color>
+    <color name="brand_yellow">#FDC200</color>
+    <color name="brand_black">#1A1A1A</color>
+    <color name="surface_light">#F3F0F6</color>
+    <color name="surface_dark">#0A0A0B</color>
+</resources>

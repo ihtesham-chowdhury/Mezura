@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textAppearance="?attr/textAppearanceHeadlineMedium" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            android:text="@string/main_intro"
+            android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+        <!-- ============ APPEARANCE ============ -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/SettingsCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout style="@style/CardBody">
+
+                <TextView style="@style/CardTitle"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_appearance" />
+
+                <TextView style="@style/CardCaption"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_appearance_caption" />
+
+                <TextView style="@style/SectionLabel"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_colour" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/colourChipGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true" />
+
+                <TextView style="@style/SectionLabel"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_transparency" />
+
+                <TextView
+                    android:id="@+id/transparencyValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceBodySmall" />
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/transparencySlider"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:valueFrom="0"
+                    android:valueTo="100"
+                    android:stepSize="5" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ============ FOCUS TIMER ============ -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/SettingsCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout style="@style/CardBody">
+
+                <TextView style="@style/CardTitle"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_focus_timer" />
+
+                <TextView style="@style/CardCaption"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_focus_timer_caption" />
+
+                <ImageView
+                    android:id="@+id/previewSand"
+                    android:layout_width="120dp"
+                    android:layout_height="160dp"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="12dp"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@string/preview_desc" />
+
+                <TextView style="@style/SectionLabel"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_focus_length" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/focusChipGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true"
+                    app:selectionRequired="true" />
+
+                <TextView style="@style/SectionLabel"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_break_length" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/breakChipGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true"
+                    app:selectionRequired="true" />
+
+                <TextView
+                    android:id="@+id/timerStateText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ============ STOPWATCH ============ -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/SettingsCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout style="@style/CardBody">
+
+                <TextView style="@style/CardTitle"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_stopwatch" />
+
+                <TextView style="@style/CardCaption"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_stopwatch_caption" />
+
+                <ImageView
+                    android:id="@+id/previewStopwatch"
+                    android:layout_width="150dp"
+                    android:layout_height="175dp"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="12dp"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@string/preview_desc" />
+
+                <TextView style="@style/SectionLabel"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_dial" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/dialChipGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true"
+                    app:selectionRequired="true" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/openStopwatchButton"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/settings_open_stopwatch" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ============ THE OTHER TWO ============ -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/SettingsCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout style="@style/CardBody">
+
+                <TextView style="@style/CardTitle"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_other_widgets" />
+
+                <TextView style="@style/CardCaption"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/settings_other_widgets_caption" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:layout_marginTop="12dp">
+
+                    <ImageView
+                        android:id="@+id/previewAge"
+                        android:layout_width="150dp"
+                        android:layout_height="72dp"
+                        android:scaleType="fitCenter"
+                        android:importantForAccessibility="no" />
+
+                    <ImageView
+                        android:id="@+id/previewSundial"
+                        android:layout_width="72dp"
+                        android:layout_height="72dp"
+                        android:layout_marginStart="16dp"
+                        android:scaleType="fitCenter"
+                        android:importantForAccessibility="no" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ============ SETUP ============ -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/SettingsCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout style="@style/CardBody">
+
+                <TextView style="@style/CardTitle"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/main_how_to_add" />
+
+                <TextView style="@style/CardCaption"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="@string/main_how_to_add_body" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/grantPermissionsButton"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="@string/main_grant_permissions" />
+
+                <TextView
+                    android:id="@+id/permissionStatusText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Picker preview only; the live widget is drawn by StopwatchRenderer. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="72dp" android:height="72dp"
+    android:viewportWidth="72" android:viewportHeight="72">
+    <path android:fillColor="#9AA0A6" android:pathData="M30,4 H42 V12 H30 Z" />
+    <path android:fillColor="#C7CCD1"
+        android:pathData="M36,64 m-27,0 a27,27 0 1,0 54,0 a27,27 0 1,0 -54,0" />
+    <path android:fillColor="#F4F3EF"
+        android:pathData="M36,64 m-22,0 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0" />
+    <path android:fillColor="#17171A" android:pathData="M35,64 L37,64 L36.6,46 L35.4,46 Z" />
+    <path android:fillColor="#17171A"
+        android:pathData="M36,64 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+</vector>

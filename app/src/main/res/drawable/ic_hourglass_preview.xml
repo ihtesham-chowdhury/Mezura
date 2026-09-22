@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Picker preview only. The live widget is drawn by SandTimerRenderer. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="72dp" android:height="72dp"
+    android:viewportWidth="72" android:viewportHeight="72">
+    <path
+        android:fillColor="#1A1A1A"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:pathData="M16,8 L56,8 L56,14 L38,36 L56,58 L56,64 L16,64 L16,58 L34,36 L16,14 Z" />
+    <path
+        android:fillColor="#D71921"
+        android:pathData="M20,16 L52,16 L38,34 L34,34 Z" />
+    <path
+        android:fillColor="#D71921"
+        android:pathData="M20,60 L52,60 L44,50 L28,50 Z" />
+</vector>

@@ -1,0 +1,33 @@
+# Build output. No leading slash, so this matches app/build/ too, not just the root one.
+build/
+captures/
+.gradle/
+.cxx
+.externalNativeBuild
+*.iml
+
+# IDE + OS
+.idea/
+.DS_Store
+
+# Machine-specific: points at this computer's SDK install
+local.properties
+
+# Signing material - never commit these. Losing control of the keystore or its password
+# means losing the ability to ship updates to anyone who already installed the app.
+keystore.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+# Keystores don't have to carry an extension - this one didn't, and the *.jks rule
+# sailed straight past it. Named explicitly, and better still, keep keystores outside
+# the repo folder entirely (see SIGNING.md).
+ndot-release
+ndot-release.*
+
+# Built artifacts belong on a Release, not in git history - they're large and binary,
+# and every rebuild would add another copy forever.
+*.apk
+*.aab
+app/release/

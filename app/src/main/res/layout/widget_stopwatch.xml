@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nothing behind the watch: no panel, no keyline. The silhouette ends at the case. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/stopwatchImage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitCenter"
+        android:contentDescription="@string/stopwatch_desc" />
+
+    <!-- The crown strip at the top opens the full-screen face; the dial itself
+         starts and stops. -->
+    <ImageButton
+        android:id="@+id/stopwatchOpen"
+        android:layout_width="match_parent"
+        android:layout_height="26dp"
+        android:layout_gravity="top"
+        android:background="#00000000"
+        android:contentDescription="@string/stopwatch_open_desc" />
+
+</FrameLayout>

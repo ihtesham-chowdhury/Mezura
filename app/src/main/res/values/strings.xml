@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ndot Widgets</string>
+    <string name="status_on">on</string>
+    <string name="status_off">off</string>
+
+    <!-- Settings screen -->
+    <string name="main_intro">Four widgets. Colour and transparency apply to all of them.</string>
+    <string name="main_grant_permissions">Grant permissions</string>
+    <string name="main_permission_status">Location %1$s · Notifications %2$s</string>
+    <string name="main_how_to_add">Adding a widget</string>
+    <string name="main_how_to_add_body">Long-press your home screen → Widgets → Ndot Widgets, then drag one on. Sun Dial and Age in Motion open a short setup screen the first time.</string>
+    <string name="preview_desc">Preview with the current colour and transparency</string>
+
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_appearance_caption">Shared by every widget.</string>
+    <string name="settings_colour">Colour</string>
+    <string name="settings_transparency">Transparency</string>
+    <string name="settings_opacity_value">%1$d%% opaque</string>
+
+    <string name="settings_focus_timer">Focus timer</string>
+    <string name="settings_focus_timer_caption">The sand timer. Tap it to start or pause; tap the time underneath to reset. When a session ends it buzzes and rolls straight into a break.</string>
+    <string name="settings_focus_length">Focus length</string>
+    <string name="settings_break_length">Break length</string>
+    <string name="settings_timer_idle">Ready. Tap the sand timer to start.</string>
+    <string name="settings_timer_running">Running · about %1$d min left</string>
+    <string name="settings_timer_paused">Paused.</string>
+    <string name="duration_minutes">%1$d min</string>
+    <string name="duration_hours">%1$d hr</string>
+
+    <string name="settings_stopwatch">Stopwatch</string>
+    <string name="settings_stopwatch_caption">Counts up, with laps. Tap the dial on your home screen to start and stop it; tap the crown to open the full-size face, where the hand sweeps smoothly and the pusher clicks.</string>
+    <string name="settings_dial">Dial</string>
+    <string name="settings_open_stopwatch">Open the stopwatch</string>
+
+    <string name="settings_other_widgets">Age in Motion and Sun Dial</string>
+    <string name="settings_other_widgets_caption">Age in Motion shows your age; tap it to cycle through years, weeks, days and more. Sun Dial fills as the sun crosses the sky. Both are set up when you first place them.</string>
+
+    <!-- Sand timer -->
+    <string name="hourglass_widget_desc">A focus timer as a real sand timer.</string>
+    <string name="hourglass_desc">Sand timer</string>
+    <string name="timer_focus">FOCUS</string>
+    <string name="timer_break">BREAK</string>
+    <string name="timer_channel_name">Running timer</string>
+    <string name="pomodoro_channel_name">Timer alerts</string>
+    <string name="pomodoro_notif_work_title">Focus time</string>
+    <string name="pomodoro_notif_break_title">Take a break</string>
+
+    <!-- Stopwatch -->
+    <string name="stopwatch_widget_desc">A mechanical stopwatch with laps.</string>
+    <string name="stopwatch_desc">Stopwatch</string>
+    <string name="stopwatch_open_desc">Open the full stopwatch</string>
+    <string name="stopwatch_running">Stopwatch</string>
+    <string name="stopwatch_start">Start</string>
+    <string name="stopwatch_stop">Stop</string>
+    <string name="stopwatch_lap">Lap</string>
+    <string name="stopwatch_reset">Reset</string>
+    <string name="stopwatch_lap_row">%1$d   +%2$s   %3$s</string>
+    <string name="stopwatch_dial_black">Black dial</string>
+    <string name="stopwatch_dial_white">White dial</string>
+
+    <!-- Sun Dial -->
+    <string name="sundial_widget_desc">Sunrise and sunset, at a glance.</string>
+    <string name="sundial_desc">Sun dial</string>
+    <string name="sundial_tap_to_set_location">TAP TO SET LOCATION</string>
+    <string name="configure_sundial_title">Set up Sun Dial</string>
+    <string name="configure_sundial_subtitle">Pick a location so sunrise and sunset can be calculated.</string>
+    <string name="configure_sundial_use_location">Use my location</string>
+    <string name="configure_sundial_or_pick_city">Or pick a city</string>
+    <string name="configure_sundial_your_location">Your location</string>
+    <string name="configure_sundial_selected">%1$s · %2$.2f, %3$.2f</string>
+    <string name="configure_save">Save</string>
+
+    <!-- Age in Motion -->
+    <string name="age_widget_desc">Watch yourself age, in whichever unit you pick.</string>
+    <string name="age_tap_to_set">TAP TO ADD YOUR AGE</string>
+    <string name="configure_age_title">Set up Age in Motion</string>
+    <string name="configure_age_subtitle">Pick a date of birth. Tap the widget afterward to cycle units.</string>
+    <string name="age_unit_years">years</string>
+    <string name="age_unit_months">months</string>
+    <string name="age_unit_weeks">weeks</string>
+    <string name="age_unit_days">days</string>
+    <string name="age_unit_hours">hours</string>
+    <string name="age_unit_minutes">minutes</string>
+    <string name="age_unit_moons">full moons</string>
+    <string name="age_unit_heartbeats">heartbeats</string>
+</resources>
