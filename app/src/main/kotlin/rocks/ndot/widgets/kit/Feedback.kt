@@ -40,6 +40,14 @@ object Feedback {
         CLACK,
         /** A timer running out: two soft bell strikes. */
         CHIME,
+        /** A mechanical detent lock confirmation. */
+        LOCK,
+        /** Breathing cue: rising harmonic fifth. */
+        INHALE,
+        /** Breathing cue: high harmonic ping for cyclic sigh topup. */
+        TOPUP,
+        /** Breathing cue: descending low-pass chord. */
+        EXHALE,
     }
 
     enum class Haptic { TICK, CLICK, HEAVY, DOUBLE, DONE }
@@ -92,6 +100,65 @@ object Feedback {
     fun press(context: Context, sound: Sound, haptic: Haptic = Haptic.CLICK) {
         play(context, sound)
         haptic(context, haptic)
+    }
+
+    private var lastTickTime = 0L
+
+    /** Page or minute detent tick, throttled to at most 40 per second (25ms). */
+    fun tick(context: Context) {
+        val now = System.currentTimeMillis()
+        if (now - lastTickTime >= 25L) {
+            lastTickTime = now
+            haptic(context, Haptic.TICK)
+            play(context, Sound.DETENT)
+        }
+    }
+
+    /** Snap or default set confirmation. */
+    fun lock(context: Context) {
+        confirmDefault(context)
+    }
+
+    /** Double-tick crisp haptic + subtle mechanical lock tone when saving a default. */
+    fun confirmDefault(context: Context) {
+        haptic(context, Haptic.DOUBLE)
+        play(context, Sound.LOCK)
+    }
+
+    /** Finish or match celebratory cue. */
+    fun success(context: Context) {
+        haptic(context, Haptic.DONE)
+        play(context, Sound.CHIME)
+    }
+
+    /** Soft breath cue or subtle detent. */
+    fun soft(context: Context) {
+        haptic(context, Haptic.TICK)
+    }
+
+    /** Pop cue when building is placed or habit completed. */
+    fun pop(context: Context) {
+        haptic(context, Haptic.CLICK)
+        play(context, Sound.KEY_UP)
+    }
+
+    fun breathingInhale(context: Context) {
+        haptic(context, Haptic.CLICK)
+        play(context, Sound.INHALE)
+    }
+
+    fun breathingTopUp(context: Context) {
+        haptic(context, Haptic.DOUBLE)
+        play(context, Sound.TOPUP)
+    }
+
+    fun breathingHold(context: Context) {
+        haptic(context, Haptic.TICK)
+    }
+
+    fun breathingExhale(context: Context) {
+        haptic(context, Haptic.HEAVY)
+        play(context, Sound.EXHALE)
     }
 
     /** Builds the tracks ahead of time, so even the very first press is instant. */
@@ -156,6 +223,22 @@ object Feedback {
                 Partial(660.0, 1.0, 2.2, delay = 0.42), Partial(660.0 * 2.76, 0.45, 3.8, delay = 0.42),
                 Partial(660.0 * 5.40, 0.18, 6.0, delay = 0.42),
             ),
+        )
+        Sound.LOCK -> render(
+            ms = 35, gain = 0.55, noiseAmp = 0.35, noiseDecay = 700.0, noiseLowpass = 0.25,
+            partials = listOf(Partial(1400.0, 0.5, 180.0), Partial(2800.0, 0.3, 240.0)),
+        )
+        Sound.INHALE -> render(
+            ms = 320, gain = 0.42, noiseAmp = 0.08, noiseDecay = 4.0, noiseLowpass = 0.12,
+            partials = listOf(Partial(220.0, 0.6, 3.5), Partial(330.0, 0.45, 3.0, delay = 0.08)),
+        )
+        Sound.TOPUP -> render(
+            ms = 180, gain = 0.45, noiseAmp = 0.05, noiseDecay = 8.0, noiseLowpass = 0.1,
+            partials = listOf(Partial(440.0, 0.7, 9.0), Partial(880.0, 0.3, 12.0)),
+        )
+        Sound.EXHALE -> render(
+            ms = 450, gain = 0.45, noiseAmp = 0.1, noiseDecay = 3.0, noiseLowpass = 0.08,
+            partials = listOf(Partial(330.0, 0.5, 3.0), Partial(165.0, 0.7, 2.5, delay = 0.06)),
         )
     }
 

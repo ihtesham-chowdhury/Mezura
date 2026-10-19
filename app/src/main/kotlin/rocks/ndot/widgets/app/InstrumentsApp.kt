@@ -36,8 +36,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import rocks.ndot.widgets.instruments.breathing.BreathingScreen
 import rocks.ndot.widgets.instruments.calendar.CalendarScreen
+import rocks.ndot.widgets.instruments.folio.FolioScreen
 import rocks.ndot.widgets.instruments.habits.HabitsScreen
+import rocks.ndot.widgets.instruments.almanac.AlmanacScreen
+import rocks.ndot.widgets.instruments.trace.TraceScreen
 import rocks.ndot.widgets.instruments.hourglass.HourglassScreen
 import rocks.ndot.widgets.instruments.metronome.MetronomeScreen
 import rocks.ndot.widgets.instruments.pomodoro.PomodoroScreen
@@ -88,7 +92,19 @@ private const val SETTINGS = "settings"
 @Composable
 fun InstrumentsApp(requested: MutableState<String?>) {
     val context = LocalContext.current
-    var screen by rememberSaveable { mutableStateOf(HOME) }
+    val initialRoute = remember {
+        val defaultRoute = AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_STARTUP_ROUTE, HOME)
+        if (defaultRoute == "time") {
+            AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_TIME_INSTRUMENT, Tool.HOURGLASS.id)
+        } else if (defaultRoute == "horizon") {
+            Tool.ALMANAC.id
+        } else if (Tool.byId(defaultRoute) != null) {
+            defaultRoute
+        } else {
+            HOME
+        }
+    }
+    var screen by rememberSaveable { mutableStateOf(initialRoute) }
     var openFamily by remember { mutableStateOf<Family?>(null) }
     val lightChrome = remember { mutableStateOf(false) }
 
@@ -141,8 +157,10 @@ fun InstrumentsApp(requested: MutableState<String?>) {
                     HOME -> HomeScreen(
                         onOpen = { screen = it.id; AppPrefs.setLastTool(context, it.id) },
                         onSettings = { screen = SETTINGS },
+                        onViewTrace = { screen = "trace" },
                     )
                     SETTINGS -> SettingsScreen(onBack = { screen = HOME })
+                    "trace" -> TraceScreen(onBack = { screen = HOME })
                     else -> when (Tool.byId(key)) {
                         Tool.STOPWATCH -> StopwatchScreen()
                         Tool.POMODORO -> PomodoroScreen()
@@ -150,7 +168,22 @@ fun InstrumentsApp(requested: MutableState<String?>) {
                         Tool.METRONOME -> MetronomeScreen()
                         Tool.CALENDAR -> CalendarScreen()
                         Tool.HABITS -> HabitsScreen()
-                        null -> HomeScreen(onOpen = { screen = it.id }, onSettings = { screen = SETTINGS })
+                        Tool.FOLIO -> FolioScreen(
+                            onNavigateToPomodoro = { book ->
+                                rocks.ndot.widgets.instruments.folio.BookStore.setActiveReadingBook(context, book)
+                                AppPrefs.setDesign(context, "pomodoro", rocks.ndot.widgets.instruments.pomodoro.Device.POCKET.id)
+                                rocks.ndot.widgets.widgets.TimerEngine.start(context)
+                                screen = Tool.POMODORO.id
+                                AppPrefs.setLastTool(context, Tool.POMODORO.id)
+                            }
+                        )
+                        Tool.BREATHING -> BreathingScreen()
+                        Tool.ALMANAC -> AlmanacScreen()
+                        null -> HomeScreen(
+                            onOpen = { screen = it.id },
+                            onSettings = { screen = SETTINGS },
+                            onViewTrace = { screen = "trace" }
+                        )
                     }
                 }
             }

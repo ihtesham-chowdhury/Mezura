@@ -86,7 +86,11 @@ private fun lookFor(design: GlassDesign): GlassLook = when (design) {
 @Composable
 fun HourglassScreen() {
     val context = LocalContext.current
-    var design by remember { mutableStateOf(GlassDesign.byId(AppPrefs.design(context, "hourglass", GlassDesign.CLASSIC.id))) }
+    var design by remember {
+        mutableStateOf(
+            GlassDesign.byId(AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_HOURGLASS_STYLE, GlassDesign.CLASSIC.id))
+        )
+    }
     var snap by remember { mutableStateOf(HourglassEngine.snapshot(context)) }
     var presets by remember { mutableStateOf(AppPrefs.hourglassPresets(context)) }
     var editing by remember { mutableStateOf<Int?>(null) }
@@ -200,6 +204,11 @@ fun HourglassScreen() {
                     design = GlassDesign.entries[it]
                     AppPrefs.setDesign(context, "hourglass", design.id)
                     Feedback.press(context, Feedback.Sound.DETENT, Feedback.Haptic.TICK)
+                },
+                onLongPress = {
+                    val picked = GlassDesign.entries[it]
+                    design = picked
+                    AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_HOURGLASS_STYLE, picked.id, "${picked.label} style for Hourglass")
                 },
             )
             Spacer(Modifier.height(14.dp))

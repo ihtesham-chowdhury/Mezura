@@ -103,6 +103,26 @@ object HourglassEngine {
             .putString(KEY_STATE, State.DONE.name)
             .putLong(KEY_REMAINING, 0L)
             .commit()
+
+        val run = rocks.ndot.widgets.instruments.sequence.SequenceEngine.getActiveRun(context)
+        if (run != null && (run.state == rocks.ndot.widgets.instruments.sequence.SequenceState.RUNNING_STEP || run.state == rocks.ndot.widgets.instruments.sequence.SequenceState.PAUSED)) {
+            rocks.ndot.widgets.instruments.sequence.SequenceEngine.onStepCompleted(context)
+        } else {
+            val durSec = snap.durationMs / 1000L
+            val now = System.currentTimeMillis()
+            rocks.ndot.widgets.instruments.trace.TraceLedger.recordEvent(
+                context,
+                rocks.ndot.widgets.instruments.trace.TraceEvent(
+                    activityType = rocks.ndot.widgets.instruments.trace.ActivityType.BREAK,
+                    sourceInstrument = "hourglass",
+                    title = "Hourglass Timer",
+                    startedAtMillis = now - (durSec * 1000L),
+                    endedAtMillis = now,
+                    durationSeconds = durSec,
+                    outcome = rocks.ndot.widgets.instruments.trace.SessionOutcome.COMPLETED
+                )
+            )
+        }
         return true
     }
 }

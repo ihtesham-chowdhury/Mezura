@@ -14,35 +14,28 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.chip.Chip
+import rocks.ndot.widgets.app.AppPrefs
 import rocks.ndot.widgets.common.Appearance
-import rocks.ndot.widgets.common.Brand
-import rocks.ndot.widgets.common.SandTimerRenderer
 import rocks.ndot.widgets.common.Shapes
-import rocks.ndot.widgets.common.SolarMath
 import rocks.ndot.widgets.common.StopwatchRenderer
-import rocks.ndot.widgets.common.SundialRenderer
 import rocks.ndot.widgets.databinding.ActivityWidgetSettingsBinding
 import rocks.ndot.widgets.widgets.AgeWidgetProvider
-import rocks.ndot.widgets.widgets.HourglassWidgetProvider
+import rocks.ndot.widgets.widgets.CalendarWidgetProvider
+import rocks.ndot.widgets.widgets.CalendarWidgetRenderer
+import rocks.ndot.widgets.widgets.CalendarWidgetSpan
+import rocks.ndot.widgets.widgets.CalendarWidgetStyle
 import rocks.ndot.widgets.widgets.StopwatchWidgetProvider
-import rocks.ndot.widgets.widgets.SundialWidgetProvider
-import rocks.ndot.widgets.widgets.TimerEngine
-import java.util.TimeZone
 
 /**
- * Settings for the home-screen widgets. This used to be the whole app; since the instruments
- * moved into [MainActivity] it is reached from the app's settings screen instead.
- *
- * One card per thing, so the focus timer, the stopwatch and the rest are visibly separate
- * rather than one undifferentiated list of controls.
- *
- * Every preview is drawn by the same renderer the widget uses, so what is on this screen is
- * exactly what lands on the home screen. It is also the only place runtime permissions can be
- * requested from - a widget cannot ask for them itself.
+ * Settings for the home-screen widgets.
+ * Allows configuring global palette/transparency, calendar finish and span, and stopwatch dial.
  */
 class WidgetSettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityWidgetSettingsBinding
+
+    private var calendarStyle = CalendarWidgetStyle.APPLE_GLASS
+    private var calendarSpan = CalendarWidgetSpan.MONTH
 
     private val requestPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -53,13 +46,18 @@ class WidgetSettingsActivity : AppCompatActivity() {
         binding = ActivityWidgetSettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        val savedStyle = AppPrefs.getDefault(this, AppPrefs.KEY_DEFAULT_CALENDAR_STYLE, "glass")
+        calendarStyle = if (savedStyle == "paper") CalendarWidgetStyle.PAPER else CalendarWidgetStyle.APPLE_GLASS
+        val savedSpan = AppPrefs.getDefault(this, AppPrefs.KEY_DEFAULT_CALENDAR_SPAN, "month")
+        calendarSpan = if (savedSpan == "year") CalendarWidgetSpan.YEAR else CalendarWidgetSpan.MONTH
+
         binding.grantPermissionsButton.setOnClickListener { requestAllPermissions() }
         binding.openStopwatchButton.setOnClickListener {
             startActivity(MainActivity.openIntent(this, "stopwatch"))
         }
 
         buildColourChips()
-        buildDurationChips()
+        buildCalendarChips()
         buildDialChips()
         setUpTransparencySlider()
     }
@@ -67,7 +65,6 @@ class WidgetSettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshPermissionStatus()
-        refreshTimerState()
         refreshPreviews()
     }
 
@@ -93,10 +90,6 @@ class WidgetSettingsActivity : AppCompatActivity() {
         markSelectedSwatch()
     }
 
-    /**
-     * Updates the ring on the existing chips. Rebuilding the group from inside a chip's own
-     * click handler would detach that chip mid-dispatch.
-     */
     private fun markSelectedSwatch() {
         val current = Appearance.accent(this)
         Appearance.PALETTE.forEachIndexed { index, swatch ->
@@ -112,8 +105,6 @@ class WidgetSettingsActivity : AppCompatActivity() {
         binding.transparencySlider.value = percent.toFloat()
         showTransparencyValue(percent)
 
-        // stepSize is 5, so a full sweep fires this at most 21 times - cheap enough to push
-        // straight through to the home screen on each step.
         binding.transparencySlider.addOnChangeListener { _, value, fromUser ->
             if (!fromUser) return@addOnChangeListener
             val newPercent = value.toInt()
@@ -127,46 +118,55 @@ class WidgetSettingsActivity : AppCompatActivity() {
         binding.transparencyValue.text = getString(R.string.settings_opacity_value, percent)
     }
 
-    // ---- focus timer ------------------------------------------------------------------
+    // ---- calendar widget --------------------------------------------------------------
 
-    private fun buildDurationChips() {
-        binding.focusChipGroup.removeAllViews()
-        TimerEngine.FOCUS_CHOICES.forEach { minutes ->
-            binding.focusChipGroup.addView(
-                durationChip(minutes, minutes == TimerEngine.focusMinutes(this)) {
-                    TimerEngine.setFocusMinutes(this, minutes)
-                    refreshTimerState()
+    private fun buildCalendarChips() {
+        binding.calendarStyleChipGroup.removeAllViews()
+        listOf(
+            CalendarWidgetStyle.APPLE_GLASS to "Apple Glass",
+            CalendarWidgetStyle.PAPER to "Archival Paper"
+        ).forEach { (style, label) ->
+            val chip = Chip(this).apply {
+                text = label
+                isCheckable = true
+                isChecked = style == calendarStyle
+                setOnClickListener {
+                    calendarStyle = style
+                    AppPrefs.setDefault(
+                        this@WidgetSettingsActivity,
+                        AppPrefs.KEY_DEFAULT_CALENDAR_STYLE,
+                        if (style == CalendarWidgetStyle.PAPER) "paper" else "glass",
+                        label
+                    )
+                    refreshPreviews()
                     applyEverywhere()
                 }
-            )
+            }
+            binding.calendarStyleChipGroup.addView(chip)
         }
 
-        binding.breakChipGroup.removeAllViews()
-        TimerEngine.BREAK_CHOICES.forEach { minutes ->
-            binding.breakChipGroup.addView(
-                durationChip(minutes, minutes == TimerEngine.breakMinutes(this)) {
-                    TimerEngine.setBreakMinutes(this, minutes)
+        binding.calendarSpanChipGroup.removeAllViews()
+        listOf(
+            CalendarWidgetSpan.MONTH to "Full Month",
+            CalendarWidgetSpan.YEAR to "Full Year Matrix"
+        ).forEach { (span, label) ->
+            val chip = Chip(this).apply {
+                text = label
+                isCheckable = true
+                isChecked = span == calendarSpan
+                setOnClickListener {
+                    calendarSpan = span
+                    AppPrefs.setDefault(
+                        this@WidgetSettingsActivity,
+                        AppPrefs.KEY_DEFAULT_CALENDAR_SPAN,
+                        if (span == CalendarWidgetSpan.YEAR) "year" else "month",
+                        label
+                    )
+                    refreshPreviews()
+                    applyEverywhere()
                 }
-            )
-        }
-    }
-
-    private fun durationChip(minutes: Int, checked: Boolean, onPick: () -> Unit): Chip =
-        Chip(this).apply {
-            text = if (minutes % 60 == 0) getString(R.string.duration_hours, minutes / 60)
-            else getString(R.string.duration_minutes, minutes)
-            isCheckable = true
-            isChecked = checked
-            setOnClickListener { onPick() }
-        }
-
-    private fun refreshTimerState() {
-        val phase = TimerEngine.phase(this)
-        binding.timerStateText.text = when {
-            phase == TimerEngine.Phase.IDLE -> getString(R.string.settings_timer_idle)
-            TimerEngine.isRunning(this) ->
-                getString(R.string.settings_timer_running, TimerEngine.remainingMs(this) / 60_000L + 1)
-            else -> getString(R.string.settings_timer_paused)
+            }
+            binding.calendarSpanChipGroup.addView(chip)
         }
     }
 
@@ -192,13 +192,11 @@ class WidgetSettingsActivity : AppCompatActivity() {
 
     // ---- previews ---------------------------------------------------------------------
 
-    /** A settings change has to reach widgets already sitting on the home screen. */
     private fun applyEverywhere() {
         refreshPreviews()
-        HourglassWidgetProvider.updateAll(this)
+        CalendarWidgetProvider.updateAll(this)
         StopwatchWidgetProvider.updateAll(this)
         AgeWidgetProvider.updateAll(this)
-        SundialWidgetProvider.updateAll(this)
     }
 
     private fun refreshPreviews() {
@@ -206,15 +204,13 @@ class WidgetSettingsActivity : AppCompatActivity() {
         fun px(dp: Int) = (dp * density).toInt()
 
         val body = Appearance.bodyColor(this)
-        val accent = Appearance.accentWithAlpha(this)
 
-        val sand = if (Appearance.accent(this) == Brand.RED) 0xFFD79A3A.toInt() else Appearance.accent(this)
-        binding.previewSand.setImageBitmap(
-            SandTimerRenderer.render(
-                px(120), px(160),
-                remainingFraction = 0.62f, running = true,
-                sandColor = Appearance.withAlpha(sand, Appearance.alphaPercent(this)),
-                tick = 7,
+        binding.previewCalendar.setImageBitmap(
+            CalendarWidgetRenderer.renderToBitmap(
+                this,
+                px(260), px(180),
+                calendarStyle,
+                calendarSpan
             )
         )
 
@@ -228,16 +224,13 @@ class WidgetSettingsActivity : AppCompatActivity() {
             )
         )
 
-        binding.previewAge.setImageBitmap(Shapes.pill(px(150), px(72), body))
-        val dialState = SolarMath.dialStateNow(System.currentTimeMillis(), 23.81, 90.41, TimeZone.getDefault())
-        binding.previewSundial.setImageBitmap(SundialRenderer.render(px(72), dialState, accent, body))
+        binding.previewAge.setImageBitmap(Shapes.pill(px(180), px(80), body))
     }
 
     // ---- permissions ------------------------------------------------------------------
 
     private fun requestAllPermissions() {
         val wanted = buildList {
-            add(Manifest.permission.ACCESS_COARSE_LOCATION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -256,15 +249,12 @@ class WidgetSettingsActivity : AppCompatActivity() {
     }
 
     private fun refreshPermissionStatus() {
-        val location = granted(Manifest.permission.ACCESS_COARSE_LOCATION)
         val notifications = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             granted(Manifest.permission.POST_NOTIFICATIONS)
         binding.permissionStatusText.text =
-            getString(R.string.main_permission_status, word(location), word(notifications))
+            getString(if (notifications) R.string.status_on else R.string.status_off)
     }
 
     private fun granted(permission: String) =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-
-    private fun word(ok: Boolean) = getString(if (ok) R.string.status_on else R.string.status_off)
 }

@@ -16,9 +16,18 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,11 +70,14 @@ import rocks.ndot.widgets.kit.labelStyle
  * Adding a new instrument later means adding a [Tool] - the drawer, home screen and routing
  * all follow from these two lists.
  */
-enum class Family(val label: String) {
-    TIME("TIME"),
-    RHYTHM("RHYTHM"),
-    CALENDAR("CALENDAR"),
-    HABITS("HABITS");
+enum class Family(val label: String, val routeId: String) {
+    TIME("TIME", "time"),
+    RHYTHM("RHYTHM", "metronome"),
+    CALENDAR("CALENDAR", "calendar"),
+    HABITS("HABITS", "habits"),
+    FOLIO("READING", "folio"),
+    BREATHING("BREATHING", "breathing"),
+    ALMANAC("YEARLINE", "almanac");
 
     val tools: List<Tool> get() = Tool.entries.filter { it.family == this }
 }
@@ -76,7 +88,10 @@ enum class Tool(val id: String, val label: String, val family: Family) {
     HOURGLASS("hourglass", "HOURGLASS", Family.TIME),
     METRONOME("metronome", "METRONOME", Family.RHYTHM),
     CALENDAR("calendar", "CALENDAR", Family.CALENDAR),
-    HABITS("habits", "HABITS", Family.HABITS);
+    HABITS("habits", "HABITS", Family.HABITS),
+    FOLIO("folio", "READING", Family.FOLIO),
+    BREATHING("breathing", "BREATHING", Family.BREATHING),
+    ALMANAC("almanac", "YEARLINE", Family.ALMANAC);
 
     companion object {
         fun byId(id: String?): Tool? = entries.firstOrNull { it.id == id }
@@ -126,10 +141,20 @@ fun DrawerBar(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 shownFamily?.tools?.forEach { tool ->
-                    DrawerItem(tool.label, selected = tool == current) {
-                        Feedback.press(context, Feedback.Sound.KEY_UP, Feedback.Haptic.CLICK)
-                        onTool(tool)
-                    }
+                    DrawerItem(
+                        text = tool.label,
+                        selected = tool == current,
+                        onClick = {
+                            Feedback.press(context, Feedback.Sound.KEY_UP, Feedback.Haptic.CLICK)
+                            onTool(tool)
+                        },
+                        onLongClick = {
+                            if (tool.family == Family.TIME) {
+                                val human = tool.label.lowercase().replaceFirstChar { it.uppercase() }
+                                AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_TIME_INSTRUMENT, tool.id, "$human set as default Time instrument")
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -137,7 +162,7 @@ fun DrawerBar(
         Row(
             Modifier
                 .widthIn(max = maxWidth)
-                .height(58.dp)
+                .height(64.dp)
                 .shadow(22.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
                 .clip(CircleShape)
                 .background(Color(0xF2121212))
@@ -145,42 +170,99 @@ fun DrawerBar(
                 .padding(horizontal = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            HomeDot(active = current == null) {
-                Feedback.press(context, Feedback.Sound.KEY_UP, Feedback.Haptic.TICK)
-                onHome()
+            HomeDot(
+                active = current == null,
+                onClick = {
+                    Feedback.press(context, Feedback.Sound.KEY_UP, Feedback.Haptic.TICK)
+                    onHome()
+                },
+                onLongClick = {
+                    AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_STARTUP_ROUTE, "home", "Home set as default startup screen")
+                },
+            )
+
+            val lazyListState = rememberLazyListState()
+            val selectedFamilyIndex = remember(current?.family) {
+                val idx = Family.entries.indexOf(current?.family)
+                if (idx >= 0) idx else 0
             }
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(start = 4.dp, end = 6.dp),
+
+            androidx.compose.runtime.LaunchedEffect(selectedFamilyIndex) {
+                if (current != null) {
+                    lazyListState.animateScrollToItem(selectedFamilyIndex, scrollOffset = -80)
+                }
+            }
+
+            LazyRow(
+                state = lazyListState,
+                modifier = Modifier
+                    .weight(1f)
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        val fadeW = 20.dp.toPx()
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                0.0f to Color.Transparent,
+                                (fadeW / size.width.coerceAtLeast(1f)).coerceIn(0f, 0.4f) to Color.Black,
+                                (1f - fadeW / size.width.coerceAtLeast(1f)).coerceIn(0.6f, 1f) to Color.Black,
+                                1.0f to Color.Transparent,
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    }
+                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Family.entries.forEach { family ->
+                itemsIndexed(Family.entries) { index, family ->
                     FamilyLabel(
                         family.label,
                         active = current?.family == family,
                         open = openFamily == family,
-                    ) {
-                        Feedback.press(context, Feedback.Sound.DETENT, Feedback.Haptic.TICK)
-                        val tools = family.tools
-                        when {
-                            tools.size == 1 -> onTool(tools.first())
-                            openFamily == family -> onOpenFamily(null)
-                            else -> onOpenFamily(family)
-                        }
-                    }
+                        onClick = {
+                            Feedback.press(context, Feedback.Sound.DETENT, Feedback.Haptic.TICK)
+                            val tools = family.tools
+                            when {
+                                tools.size == 1 -> onTool(tools.first())
+                                current?.family != family -> {
+                                    val defaultToolId = if (family == Family.TIME) {
+                                        AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_TIME_INSTRUMENT, Tool.HOURGLASS.id)
+                                    } else {
+                                        tools.first().id
+                                    }
+                                    val target = Tool.byId(defaultToolId) ?: tools.first()
+                                    onTool(target)
+                                }
+                                openFamily == family -> onOpenFamily(null)
+                                else -> onOpenFamily(family)
+                            }
+                        },
+                        onLongClick = {
+                            val route = if (family.tools.size == 1) family.tools.first().id else family.routeId
+                            val human = family.label.lowercase().replaceFirstChar { it.uppercase() }
+                            AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_STARTUP_ROUTE, route, "$human set as default startup screen")
+                        },
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun HomeDot(active: Boolean, onClick: () -> Unit) {
+private fun HomeDot(active: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.86f else 1f, spring(stiffness = 900f), label = "homeDot")
     Box(
         Modifier.size(40.dp).scale(scale).clip(CircleShape)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(28.dp)) {
@@ -190,34 +272,72 @@ private fun HomeDot(active: Boolean, onClick: () -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun FamilyLabel(text: String, active: Boolean, open: Boolean, onClick: () -> Unit) {
+private fun FamilyLabel(
+    text: String,
+    active: Boolean,
+    open: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val color by animateColorAsState(if (active || open) Ink.Text else Color(0xFF7E7E7E), label = "family")
+    val color by animateColorAsState(if (active || open) Color.White else Ink.TEXT_MUTED_V4, animationSpec = tween(180), label = "family")
+    val scale by animateFloatAsState(
+        if (pressed) 0.91f else 1f,
+        spring(dampingRatio = 0.65f, stiffness = 600f),
+        label = "familyScale"
+    )
+    val dotAlpha by animateFloatAsState(if (active) 1f else 0f, spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow), label = "dotAlpha")
+    val dotScale by animateFloatAsState(if (active) 1f else 0.3f, spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow), label = "dotScale")
+
     Column(
         Modifier
+            .scale(scale)
             .clip(RoundedCornerShape(14.dp))
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .background(if (pressed || open) Color(0x14FFFFFF) else Color.Transparent)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
+            .background(if (pressed || open) Color(0x18FFFFFF) else Color.Transparent)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         BasicText(text, style = labelStyle(color, 12.5.sp, FontWeight.SemiBold))
         Spacer(Modifier.height(4.dp))
-        Box(Modifier.size(4.dp).clip(CircleShape).background(if (active) Ink.Red else Color.Transparent))
+        Box(
+            Modifier
+                .size(5.dp)
+                .scale(dotScale)
+                .clip(CircleShape)
+                .background(Ink.Red.copy(alpha = dotAlpha))
+        )
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun DrawerItem(text: String, selected: Boolean, onClick: () -> Unit) {
+private fun DrawerItem(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.94f else 1f, spring(stiffness = 900f), label = "drawerItem")
     val bg by animateColorAsState(if (selected) Ink.Text else Color.Transparent, label = "drawerBg")
     Box(
         Modifier.scale(scale).clip(CircleShape).background(bg)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
             .padding(horizontal = 16.dp, vertical = 11.dp),
     ) {
         BasicText(text, style = labelStyle(if (selected) Color(0xFF0B0B0B) else Color(0xFFC4C4C4), 12.sp, FontWeight.SemiBold))

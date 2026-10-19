@@ -1,71 +1,89 @@
-# Ndot — instruments for everyday life
+# Mezura — Precision Mechanical Instruments for Android
 
-An Android app of small, beautiful instruments - a stopwatch, a Pomodoro timer, an hourglass,
-a metronome, a calendar and a habit ledger - plus the four home-screen widgets it started as
-(sand timer, stopwatch, Age in Motion, Sun Dial), which are unchanged.
+<p align="center">
+  <strong>Tactile, mechanical, offline instruments for measuring time, rhythm, reading, and habits.</strong>
+</p>
 
-Everything is offline: no account, no network, no analytics. State lives in SharedPreferences.
+---
 
-## Status - read this first
+## Overview
 
-The whole Kotlin codebase **type-checks with zero errors** against the real Android, AndroidX
-and Compose libraries (`tools/typecheck.py`), and `aapt2` compiles every resource. The complex
-drawings - the four hourglasses, three Pomodoro devices, two metronomes, the calendars, the
-home screen and the drawer bar - were designed and looked at in a browser canvas first and then
-ported number-for-number.
+**Mezura** is an Android application designed around the physical metaphors of vintage instruments. Every screen avoids standard flat Material Design UI; instead, every tool is rendered as high-precision, tactile hardware:
 
-It has **not** been built into an APK or run on a phone yet: Gradle cannot run in the
-environment it was written in. So the first Android Studio build is the real test. If
-something fails, the error message is enough to fix it.
+- **Split-flap page counters, lathe-turned brushed steel jog wheels, and sunray antique brass gauges.**
+- **Conical metallic shaders, molten neon illuminated light bars, and phosphor digital LEDs.**
+- **Fluid spring physics** throughout navigation sheets and floating controls (`spring(dampingRatio = 0.72f, stiffness = 500f)`).
+- **100% Offline & Private:** Zero network tracking, zero external backends. All library data, reading sessions, routines, and habit matrices live on your device with JSON backup/restore and Excel export.
 
-## Building it
+---
 
-Open this folder in Android Studio, let Gradle sync, then **Build → Generate Signed App Bundle
-or APK → APK → release** (the keystore is already set up - see `SIGNING.md`), or just press Run
-for a debug build.
+## The Instruments
 
-`versionCode` is now 2, so a release build installs over the v1 widgets app and keeps your
-widgets and settings.
+### 1. The Counter (Reading & Focus Instrument)
+A precision mechanical reading instrument inspired by industrial analog measuring tools:
+- **3-Digit Split-Flap Display:** Large condensed bold numerals with realistic stacked card reels, top alignment notches, and 3.2px split axle hinges.
+- **Total Readout:** Clear external `/ 300 PAGES` (or `%` for e-readers and Kindle progress).
+- **Lathe-Turned Conical Platter:** Anisotropic 4-lobe brushed stainless steel reflection at 45°, 135°, 225°, 315° with concentric machine grooves and a deeply sculpted liquid-metal kidney thumb dimple.
+- **Rotary Jog-Shuttle Wheel:** 120 sharp polygon steel gear teeth, compact `-44°` bolted brake ear-lug, and `+45°` spring-loaded knurled lever for quick `+1 page` increments.
+- **Micro Chrome Toggles:** Authentic bat-handle switches with laser-etched `HAPTIC` (with Electric Cyan `#1AF2FF` LED) and `SOUND` (with Emerald Green `#26FF78` LED).
+- **Molten Neon-Orange Fader:** Fast-scrub vertical fader with a blazing molten orange-gold illuminated light bar below the handle and glowing pointer arrow. Strict drag-only routing prevents accidental jumps.
 
-**Toolchain:** AGP 9.0.1, Gradle 9.1.0, Kotlin 2.4.0 (classic `kotlin-android` plugin) plus the
-`kotlin.plugin.compose` plugin at the same 2.4.0. Compose is pinned to **1.11.4** and Lifecycle to
-2.10.0 because Compose 1.12 and Lifecycle 2.11 require compileSdk 37, which isn't installed here.
+### 2. Time Family
+- **Mechanical Stopwatch:** Vintage chronograph with top winding crown, arched looped bow, and dual knurled pushers at 10:30 and 1:30. Features dual dials: Ivory Archival and Matte Smoked.
+- **Pomodoro Timer:** Three distinct physical devices—*Module* (mechanical plastic), *Slab* (machined aluminium), and *Pocket* (tactile rubber membrane). Supports both traditional countdown focus timers and continuous count-up sessions.
+- **Hourglass:** Physics-based simulation of sand granular flow across four distinct profiles (Vessel, Fluted, Teardrop, Cylinder) and a mechanical flip clock.
 
-## How it's organised
+### 3. Rhythm & Breath
+- **Metronome:** Sample-accurate audio engine with Studio (rotary dial) and Pendulum interfaces.
+- **Breathing Instrument:** Multi-mode guided breath pacer (Box Breathing, 4-7-8, Cyclic Sighing) with dynamic harmonic auditory cues.
 
-```
-MainActivity.kt              the whole app: one Compose activity, edge to edge
-WidgetSettingsActivity.kt    the old settings screen, now only for the widgets
-app/        Drawer (families -> instruments), InstrumentsApp (routing, system bars),
-            Home, Settings, AppPrefs
-kit/        Theme (Ink, Fonts, frame ticker), Feedback (synthesised sounds + haptics),
-            PixelFont (5x7 dot-matrix alphabet), Components (chips, toggles, dialogs)
-instruments/
-  stopwatch/   the chronograph: crown = start/stop, pusher = lap/reset
-  pomodoro/    DeviceArt (Module, Slab, Pocket) + the screen
-  hourglass/   GlassProfile (shape + sand volume maths), GlassRenderer (4 designs), FlipClock
-  metronome/   Metronome (sample-accurate audio thread), MetronomeArt (Studio, Pendulum)
-  calendar/    Glass and Paper, month and year
-  habits/      HabitStore (JSON), the ledger and a habit's page
-widgets/    the widget providers and the engines both sides share
-common/     widget renderers, appearance, boot handling
-```
+### 4. Habits & Living City
+- **Habit Ledger:** Track core habits, long-term goals, milestones, and dreams. Full detail editor allows setting target completion dates, descriptions, and progress.
+- **The Living City:** An isometric voxel city canvas where completing habits and reading sessions awards building materials to construct towers and landmarks.
 
-The engines (`TimerEngine`, `StopwatchEngine`, `HourglassEngine`) are wall-clock based and
-shared by the widgets and the app, so the sand-timer widget *is* the in-app Pomodoro session.
-`TimerService` finishes any timer on time with the app closed and posts the alert; with the app
-open it plays the chime instead, and the two never both fire.
+### 5. Yearline (Almanac)
+- **365/366-Day Matrix:** Heat-map matrix tracking year-long show-up streaks.
+- **Lens Filtering:** Instant toggle between all habits, specific dreams, and focus logs.
 
-## Checking it without Gradle
+### 6. Home Hub (Sequence & Trace)
+- **Sequence Engine:** Real-time guided daily routine tracker. Fully customizable: add, edit, reorder, or delete routines (Deep Work, Study, Morning Ritual) with direct links to the relevant instruments.
+- **Trace Ledger:** Immutable, local audit log recording every completed session and reading page count.
+
+### 7. Android Home-Screen Widgets
+- **Calendar Widgets:** Clean glass and archival paper month/week widgets.
+- **Hourglass & Timer Widgets:** Active live countdowns and glanceable progress directly on your home screen.
+
+---
+
+## Architecture & Tech Stack
+
+- **Platform:** Android 8.0+ (API 26+) · Target SDK 36
+- **Language:** Kotlin 2.0.21
+- **UI Framework:** Jetpack Compose 1.7.0 (with zero Material3 dependencies)
+- **Audio Engine:** Pre-baked PCM `AudioTrack` synthesizers with zero decode latency
+- **Haptic Engine:** Device-native vibration actuators (`VibrationEffect`)
+- **Persistence:** Local JSON file storage + SharedPreferences, with Excel `.xls` export and JSON backup/restore
+
+---
+
+## Building from Source
 
 ```bash
-python tools/fetch_deps.py     # once: downloads anything the Gradle cache lacks
-python tools/typecheck.py      # runs kotlinc in-process with the Compose plugin
+# Clone the repository
+git clone https://github.com/ihtesham-chowdhury/Mezura.git
+cd Mezura
+
+# Build debug APK
+./gradlew assembleDebug
+
+# Run unit tests
+./gradlew testDebugUnitTest
 ```
 
-## Known limits in this version
+Compiled APKs will be output to `app/build/outputs/apk/debug/` and `app/build/outputs/apk/release/`.
 
-- The metronome plays only while it's on screen; leaving it, or the app, stops it.
-- The app is portrait-only; every face is composed for a tall screen.
-- Shadows under keys and panels need Android 9+; on 8.x they simply don't appear.
-- A notification permission prompt appears once, the first time you start a timer (Android 13+).
+---
+
+## License
+
+Personal project by [Ihtesham Chowdhury](https://github.com/ihtesham-chowdhury). All rights reserved.

@@ -29,6 +29,40 @@ object Ink {
     val Muted = Color(0xFF8E8E8E)
     val Faint = Color(0xFF4A4A4A)
     val Red = Color(0xFFD71921)
+
+    // v4 Design Tokens (§4.1)
+    val GROUND = Color(0xFF0A0B0D)
+    val SURFACE_1 = Color(0xFF121317)
+    val SURFACE_2 = Color(0xFF1A1C21)
+    val SURFACE_3 = Color(0xFF23262C)
+    val HAIRLINE_V4 = Color(0xFF2B2E35)
+    val TEXT_WARM = Color(0xFFF2EEE6)
+    val TEXT_MUTED_V4 = Color(0xFF9A968E)
+    val TEXT_FAINT_V4 = Color(0xFF5E5C58)
+
+    val AMBER = Color(0xFFFFB14A)
+    val AMBER_DEEP = Color(0xFFE0872B)
+    val BRASS = Color(0xFFE8B25C)
+    val LED = Color(0xFFFFD08A)
+    val VERMILION = Color(0xFFE5533D)
+    val SAGE = Color(0xFF9CC5A1)
+    val BRICK = Color(0xFFD9663F)
+
+    val BREATH_IN = Color(0xFF7FE0F5)
+    val BREATH_HOLD = Color(0xFFB9A7FF)
+    val BREATH_OUT = Color(0xFFFFB48A)
+}
+
+enum class ColorTheme(val id: String, val label: String, val accent: Color) {
+    CLASSIC("classic", "Classic", Color(0xFFD71921)),
+    AMBER("amber", "Amber Ink", Color(0xFFFFAF38)),
+    CRIMSON("crimson", "Crimson Ink", Color(0xFFE63946)),
+    EMERALD("emerald", "Emerald Ink", Color(0xFF2EC4B6)),
+    COBALT("cobalt", "Cobalt Ink", Color(0xFF3A86FF));
+
+    companion object {
+        fun byId(id: String?): ColorTheme = entries.firstOrNull { it.id == id } ?: CLASSIC
+    }
 }
 
 object Fonts {

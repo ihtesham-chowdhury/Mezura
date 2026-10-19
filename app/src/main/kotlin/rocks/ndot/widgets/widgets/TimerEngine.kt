@@ -134,6 +134,31 @@ object TimerEngine {
         val current = phase(context)
         val completed = if (current == Phase.FOCUS && countIt) completed(context) + 1 else completed(context)
         val goal = goal(context)
+
+        if (countIt && current != Phase.IDLE) {
+            val run = rocks.ndot.widgets.instruments.sequence.SequenceEngine.getActiveRun(context)
+            if (run != null && (run.state == rocks.ndot.widgets.instruments.sequence.SequenceState.RUNNING_STEP || run.state == rocks.ndot.widgets.instruments.sequence.SequenceState.PAUSED)) {
+                rocks.ndot.widgets.instruments.sequence.SequenceEngine.onStepCompleted(context)
+            } else {
+                val durSec = (phaseLengthMs(context, current) / 1000L)
+                val now = System.currentTimeMillis()
+                val actType = if (current == Phase.FOCUS) rocks.ndot.widgets.instruments.trace.ActivityType.FOCUS else rocks.ndot.widgets.instruments.trace.ActivityType.BREAK
+                val title = if (current == Phase.FOCUS) "Focus Session" else "Break"
+                rocks.ndot.widgets.instruments.trace.TraceLedger.recordEvent(
+                    context,
+                    rocks.ndot.widgets.instruments.trace.TraceEvent(
+                        activityType = actType,
+                        sourceInstrument = "pomodoro",
+                        title = title,
+                        startedAtMillis = now - (durSec * 1000L),
+                        endedAtMillis = now,
+                        durationSeconds = durSec,
+                        outcome = rocks.ndot.widgets.instruments.trace.SessionOutcome.COMPLETED
+                    )
+                )
+            }
+        }
+
         if (current == Phase.FOCUS && countIt && goal > 0 && completed >= goal) {
             p.edit()
                 .putString(KEY_PHASE, Phase.IDLE.name)

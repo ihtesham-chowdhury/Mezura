@@ -1,9 +1,17 @@
 package rocks.ndot.widgets.kit
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,7 +20,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +33,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -33,6 +47,8 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +63,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 /** How much room the floating drawer bar takes at the bottom of every screen. */
 val NavClearance: Dp = 100.dp
@@ -56,6 +73,23 @@ val NavClearance: Dp = 100.dp
 fun NavSpacer() {
     Spacer(Modifier.navigationBarsPadding().height(NavClearance))
 }
+
+/** Applies standard top status-bar insets to avoid overlapping phone system headers (§4.2). */
+fun Modifier.ndotScreenInsets(): Modifier = this.statusBarsPadding()
+
+/**
+ * Universal Hold-to-Set-Default wrapper: short click activates, long press (500ms) sets default.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+fun Modifier.instrumentSelector(
+    onClick: () -> Unit,
+    onLongPressDefault: () -> Unit,
+): Modifier = this.combinedClickable(
+    interactionSource = null,
+    indication = null,
+    onClick = onClick,
+    onLongClick = onLongPressDefault,
+)
 
 data class ChipColors(
     val idle: Color,
@@ -292,5 +326,193 @@ private fun StepperRow(label: String, onMinus: () -> Unit, onPlus: () -> Unit) {
         StepKey("−", onMinus)
         Spacer(Modifier.width(10.dp))
         StepKey("+", onPlus)
+    }
+}
+
+/**
+ * NdotSegmented: 40dp pill segmented control (SURFACE_1 track, selected segment filled with accent).
+ * Supports click and long-press to set default.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun NdotSegmented(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    onLongPressDefault: ((Int) -> Unit)? = null,
+    accent: Color = Ink.BRASS,
+) {
+    val context = LocalContext.current
+    Row(
+        modifier = modifier
+            .height(40.dp)
+            .clip(CircleShape)
+            .background(Ink.SURFACE_1)
+            .border(1.dp, Ink.HAIRLINE_V4, CircleShape)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEachIndexed { index, option ->
+            val isSelected = index == selectedIndex
+            val bg by animateColorAsState(if (isSelected) accent else Color.Transparent, label = "segBg")
+            val textCol by animateColorAsState(if (isSelected) Ink.GROUND else Ink.TEXT_MUTED_V4, label = "segText")
+
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(bg)
+                    .combinedClickable(
+                        interactionSource = null,
+                        indication = null,
+                        onClick = {
+                            Feedback.press(context, Feedback.Sound.DETENT, Feedback.Haptic.TICK)
+                            onSelect(index)
+                        },
+                        onLongClick = {
+                            onLongPressDefault?.invoke(index)
+                        },
+                    )
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText(
+                    text = option,
+                    style = TextStyle(
+                        fontFamily = Fonts.mono,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 11.sp,
+                        color = textCol,
+                        letterSpacing = 0.08.sp,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * NdotSheet: Bottom sheet with 28dp top corners, drag handle, SURFACE_2 background.
+ */
+@Composable
+fun NdotSheet(
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        var visible by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { visible = true }
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(spring(dampingRatio = 0.72f, stiffness = 500f)) { it / 3 } +
+                fadeIn(tween(160)) +
+                scaleIn(spring(dampingRatio = 0.72f, stiffness = 500f), initialScale = 0.93f),
+            exit = slideOutVertically(tween(140)) { it / 4 } + fadeOut(tween(120)),
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 24.dp)
+                .widthIn(max = 440.dp)
+                .fillMaxWidth()
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Ink.SURFACE_2)
+                    .border(1.dp, Ink.HAIRLINE_V4, RoundedCornerShape(28.dp))
+                    .padding(horizontal = 22.dp, vertical = 18.dp),
+            ) {
+                // Drag handle
+                Box(
+                    Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(Ink.TEXT_FAINT_V4)
+                        .align(Alignment.CenterHorizontally),
+                )
+                Spacer(Modifier.height(16.dp))
+                content()
+            }
+        }
+    }
+}
+
+/**
+ * GlassPanel: Translucent panel with specular rim and smoked glass base.
+ */
+@Composable
+fun GlassPanel(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(20.dp),
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Color(0x18FFFFFF))
+            .border(
+                1.dp,
+                Brush.linearGradient(
+                    listOf(Color(0x8CFFFFFF), Color(0x0FFFFFFF), Color(0x47FFFFFF)),
+                ),
+                shape,
+            )
+            .padding(16.dp),
+        content = content,
+    )
+}
+
+/**
+ * DotMatrixText: Wrapper over PixelFont drawing lit and unlit dots with optional soft LED glow.
+ */
+@Composable
+fun DotMatrixText(
+    text: String,
+    modifier: Modifier = Modifier,
+    dotPitch: Dp = 3.dp,
+    litColor: Color = Ink.LED,
+    unlitColor: Color? = Color(0x2B2A2018),
+    glow: Boolean = true,
+) {
+    val totalCols = PixelFont.width(text.uppercase()).toInt().coerceAtLeast(1)
+    val totalWidth = (totalCols * dotPitch.value).dp
+    val totalHeight = (PixelFont.ROWS * dotPitch.value).dp
+
+    Canvas(modifier = modifier.size(width = totalWidth, height = totalHeight)) {
+        val pitchPx = dotPitch.toPx()
+        val dotRadius = pitchPx * 0.38f
+        val cols = PixelFont.COLS
+        val rows = PixelFont.ROWS
+
+        var currentX = 0f
+        val chars = text.uppercase()
+
+        chars.forEach { ch ->
+            for (row in 0 until rows) {
+                for (col in 0 until cols) {
+                    val isLit = PixelFont.isOn(ch, col, row)
+                    val cx = currentX + col * pitchPx + dotRadius
+                    val cy = row * pitchPx + dotRadius
+
+                    if (isLit) {
+                        if (glow) {
+                            drawCircle(
+                                color = litColor.copy(alpha = 0.32f),
+                                radius = dotRadius * 2.2f,
+                                center = Offset(cx, cy),
+                            )
+                        }
+                        drawCircle(color = litColor, radius = dotRadius, center = Offset(cx, cy))
+                    } else if (unlitColor != null) {
+                        drawCircle(color = unlitColor, radius = dotRadius * 0.72f, center = Offset(cx, cy))
+                    }
+                }
+            }
+            currentX += PixelFont.advance(ch) * pitchPx
+        }
     }
 }

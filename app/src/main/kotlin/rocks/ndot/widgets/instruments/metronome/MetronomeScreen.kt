@@ -81,7 +81,11 @@ private enum class MetroDesign(val id: String, val label: String) { STUDIO("stud
 @Composable
 fun MetronomeScreen() {
     val context = LocalContext.current
-    var design by remember { mutableStateOf(if (AppPrefs.design(context, "metronome", "studio") == "pendulum") MetroDesign.PENDULUM else MetroDesign.STUDIO) }
+    var design by remember {
+        mutableStateOf(
+            if (AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_METRONOME_STYLE, "studio") == "pendulum") MetroDesign.PENDULUM else MetroDesign.STUDIO
+        )
+    }
     var bpm by remember { mutableIntStateOf(AppPrefs.metronomeBpm(context)) }
     var beats by remember { mutableIntStateOf(AppPrefs.metronomeBeats(context)) }
     var subdivision by remember { mutableIntStateOf(AppPrefs.metronomeSubdivision(context)) }
@@ -165,6 +169,11 @@ fun MetronomeScreen() {
                 design = MetroDesign.entries[it]
                 AppPrefs.setDesign(context, "metronome", design.id)
                 Feedback.press(context, Feedback.Sound.DETENT, Feedback.Haptic.TICK)
+            },
+            onLongPress = {
+                val picked = MetroDesign.entries[it]
+                design = picked
+                AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_METRONOME_STYLE, picked.id, "${picked.label} style for Metronome")
             },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {

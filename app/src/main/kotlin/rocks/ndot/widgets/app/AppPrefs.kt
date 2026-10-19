@@ -11,6 +11,31 @@ object AppPrefs {
 
     private const val PREFS = "instruments"
 
+    // Universal Default keys for Startup Route, Sub-Styles & Themes
+    const val KEY_DEFAULT_STARTUP_ROUTE = "default_startup_route" // "calendar", "habits", "time", "folio", "breathing", "horizon"
+    const val KEY_DEFAULT_TIME_INSTRUMENT = "default_time_instrument" // "stopwatch", "pomodoro", "hourglass", "metronome"
+    const val KEY_DEFAULT_HOURGLASS_STYLE = "default_hourglass_style" // "dot", "classic", "dusk", "prism"
+    const val KEY_DEFAULT_POMODORO_STYLE  = "default_pomodoro_style"  // "module", "slab", "pocket"
+    const val KEY_DEFAULT_METRONOME_STYLE = "default_metronome_style" // "studio", "pendulum"
+    const val KEY_DEFAULT_CALENDAR_STYLE  = "default_calendar_style"  // "glass", "paper"
+    const val KEY_DEFAULT_CALENDAR_SPAN   = "default_calendar_span"   // "month", "year"
+    const val KEY_DEFAULT_HORIZON_THEME   = "default_horizon_theme"   // "horizon"
+    const val KEY_DEFAULT_BREATH_PROTOCOL = "default_breath_protocol" // "sigh", "coherent", "box", "478"
+    const val KEY_DEFAULT_COLOR_THEME     = "default_color_theme"     // "classic", "amber", "crimson", "emerald", "cobalt"
+    const val KEY_DEFAULT_FOLIO_TAB       = "default_folio_tab"       // "shelf", "caliper", "stats"
+    const val KEY_DEFAULT_HABITS_TAB      = "default_habits_tab"      // "city", "habits"
+    const val KEY_DEFAULT_HORIZON_TAB     = "default_horizon_tab"     // "ribbon", "wave"
+
+    fun setDefault(context: Context, key: String, value: String, humanLabel: String) {
+        prefs(context).edit().putString(key, value).apply()
+        rocks.ndot.widgets.kit.Feedback.confirmDefault(context)
+        android.widget.Toast.makeText(context, "$humanLabel set as default", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    fun getDefault(context: Context, key: String, fallback: String): String {
+        return prefs(context).getString(key, fallback) ?: fallback
+    }
+
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun sound(context: Context) = prefs(context).getBoolean("sound", true)

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Ndot</string>
+    <string name="app_name">Mezura</string>
     <string name="widget_settings_title">Widget settings</string>
     <string name="status_on">on</string>
     <string name="status_off">off</string>
@@ -83,4 +83,20 @@
     <string name="age_unit_minutes">minutes</string>
     <string name="age_unit_moons">full moons</string>
     <string name="age_unit_heartbeats">heartbeats</string>
+
+    <!-- Calendar Widget -->
+    <string name="calendar_widget_desc">A tactile calendar in Paper or Apple Glass.</string>
+    <string name="calendar_desc">Calendar</string>
+
+    <!-- Folio Widget -->
+    <string name="folio_widget_desc">Vernier reading progress and your last read book.</string>
+    <string name="folio_desc">Folio book tracker</string>
+
+    <!-- Breathing Widget -->
+    <string name="breathing_widget_desc">Quick-start lab-verified breathing protocols.</string>
+    <string name="breathing_desc">Breathing exercise</string>
+
+    <!-- Horizon Widget -->
+    <string name="horizon_widget_desc">Track your daily unlocks and daytime horizon.</string>
+    <string name="horizon_desc">Day Horizon</string>
 </resources>

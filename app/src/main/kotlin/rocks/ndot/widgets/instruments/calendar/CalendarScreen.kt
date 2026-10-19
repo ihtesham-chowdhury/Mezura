@@ -92,8 +92,14 @@ private val Coral = Color(0xFFE86A6A)
 @Composable
 fun CalendarScreen() {
     val context = LocalContext.current
-    var design by remember { mutableStateOf(if (AppPrefs.design(context, "calendar", "glass") == "paper") CalDesign.PAPER else CalDesign.GLASS) }
-    var yearMode by remember { mutableStateOf(false) }
+    var design by remember {
+        mutableStateOf(
+            if (AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_CALENDAR_STYLE, "glass") == "paper") CalDesign.PAPER else CalDesign.GLASS
+        )
+    }
+    var yearMode by remember {
+        mutableStateOf(AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_CALENDAR_SPAN, "month") == "year")
+    }
     val today = remember { LocalDate.now() }
     var selected by remember { mutableStateOf(today) }
     val locale = Locale.getDefault()
@@ -146,6 +152,11 @@ fun CalendarScreen() {
                     design = CalDesign.entries[it]
                     AppPrefs.setDesign(context, "calendar", design.id)
                     Feedback.press(context, Feedback.Sound.DETENT, Feedback.Haptic.TICK)
+                },
+                onLongPress = {
+                    val picked = CalDesign.entries[it]
+                    design = picked
+                    AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_CALENDAR_STYLE, picked.id, "${picked.label} style for Calendar")
                 },
             )
             Spacer(Modifier.height(10.dp))

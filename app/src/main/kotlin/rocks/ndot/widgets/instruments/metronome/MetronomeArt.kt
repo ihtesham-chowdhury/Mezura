@@ -115,7 +115,7 @@ object MetronomeArt {
         val bars = floatArrayOf(4f, 7f, 10f, 14f, 18f, 14f, 10f, 7f, 4f)
         bars.forEachIndexed { i, hh -> val bh = hh * 0.8f; c.drawRect(w / 2f - 52f + i * 3f, 22f - bh / 2f, w / 2f - 52f + i * 3f + 1.2f, 22f + bh / 2f, fill) }
         text.typeface = sans; text.textSize = 11f; text.color = 0xFF6A6A6A.toInt(); text.textAlign = Paint.Align.LEFT
-        centred(c, "ndot  metronome", w / 2f - 22f, 22f)
+        centred(c, "mezura  metronome", w / 2f - 22f, 22f)
         text.textAlign = Paint.Align.CENTER
 
         // Main panel: LCD row and dial.
