@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import rocks.ndot.widgets.instruments.folio.BottomLiquidGlassVignette
 import rocks.ndot.widgets.instruments.breathing.BreathingScreen
 import rocks.ndot.widgets.instruments.calendar.CalendarScreen
 import rocks.ndot.widgets.instruments.folio.FolioScreen
@@ -143,6 +144,17 @@ fun InstrumentsApp(requested: MutableState<String?>) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        rocks.ndot.widgets.instruments.sequence.SequenceEngine.onStepAdvanced = { nextStep ->
+            if (nextStep != null) {
+                screen = nextStep.tool.id
+                AppPrefs.setLastTool(context, nextStep.tool.id)
+            } else {
+                screen = HOME
+            }
+        }
+    }
+
     CompositionLocalProvider(LocalLightChrome provides lightChrome, LocalAskNotifications provides askNotifications) {
         Box(Modifier.fillMaxSize().background(Ink.Black)) {
             AnimatedContent(
@@ -197,6 +209,8 @@ fun InstrumentsApp(requested: MutableState<String?>) {
                     ) { openFamily = null }
                 )
             }
+
+            BottomLiquidGlassVignette(modifier = Modifier.align(Alignment.BottomCenter))
 
             DrawerBar(
                 current = tool,

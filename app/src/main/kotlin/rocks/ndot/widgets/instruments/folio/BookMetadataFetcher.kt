@@ -26,6 +26,14 @@ enum class CoverSource {
     GALLERY
 }
 
+data class OnlineCoverCandidate(
+    val title: String,
+    val author: String,
+    val coverUrl: String,
+    val source: String, // "Open Library" or "Google Books"
+    val resolutionLabel: String = "High Resolution"
+)
+
 data class BookSearchResult(
     val title: String,
     val authors: List<String>,
@@ -186,79 +194,252 @@ object BookMetadataFetcher {
         sorted
     }
 
-    suspend fun downloadAndCacheCover(context: Context, bookId: String, imageUrl: String): String? = withContext(Dispatchers.IO) {
-        var connection: HttpURLConnection? = null
+    suspend fun searchOnlineCovers(query: String, author: String? = null): List<OnlineCoverCandidate> = withContext(Dispatchers.IO) {
+        val trimmedQuery = query.trim()
+        val trimmedAuthor = author?.trim().orEmpty()
+        if (trimmedQuery.isEmpty() && trimmedAuthor.isEmpty()) return@withContext emptyList()
+
+        val results = mutableListOf<OnlineCoverCandidate>()
+        val seenUrls = mutableSetOf<String>()
+
+        // 1. Check if query is an ISBN (10 or 13 digits)
+        val cleanIsbn = trimmedQuery.replace(Regex("[^0-9X]"), "")
+        if (cleanIsbn.length == 10 || cleanIsbn.length == 13) {
+            val isbnUrl = "https://covers.openlibrary.org/b/isbn/$cleanIsbn-L.jpg"
+            results.add(
+                OnlineCoverCandidate(
+                    title = "ISBN: $cleanIsbn",
+                    author = "",
+                    coverUrl = isbnUrl,
+                    source = "Open Library",
+                    resolutionLabel = "Direct ISBN"
+                )
+            )
+            seenUrls.add(isbnUrl)
+        }
+
+        // 2. Open Library Search API
         try {
-            val url = URL(imageUrl)
-            connection = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 6000
-                readTimeout = 8000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Mezura/1.0 (Android)")
-            }
-            connection.connect()
-            val code = connection.responseCode
-            Log.d(TAG, "Downloading cover from: $imageUrl -> HTTP $code")
+            val qEncoded = URLEncoder.encode(
+                if (trimmedAuthor.isNotBlank()) "$trimmedQuery $trimmedAuthor" else trimmedQuery,
+                "UTF-8"
+            )
+            val openLibUrl = "https://openlibrary.org/search.json?q=$qEncoded&limit=25"
+            val jsonStr = httpGet(openLibUrl)
+            if (!jsonStr.isNullOrBlank()) {
+                val root = JSONObject(jsonStr)
+                val docs = root.optJSONArray("docs")
+                if (docs != null) {
+                    for (i in 0 until docs.length()) {
+                        val doc = docs.getJSONObject(i)
+                        val t = doc.optString("title", trimmedQuery)
+                        val authorArr = doc.optJSONArray("author_name")
+                        val a = if (authorArr != null && authorArr.length() > 0) authorArr.optString(0, "") else ""
+                        val coverId = doc.optLong("cover_i", 0L)
+                        val isbnArr = doc.optJSONArray("isbn")
+                        val firstIsbn = if (isbnArr != null && isbnArr.length() > 0) isbnArr.optString(0, "") else ""
 
-            if (code in 200..299) {
-                val input: InputStream = connection.inputStream
-                val bitmap = BitmapFactory.decodeStream(input)
-                input.close()
+                        val coverUrl = when {
+                            coverId > 0L -> "https://covers.openlibrary.org/b/id/$coverId-L.jpg"
+                            firstIsbn.isNotBlank() -> "https://covers.openlibrary.org/b/isbn/$firstIsbn-L.jpg"
+                            else -> null
+                        }
 
-                if (bitmap != null) {
-                    val scaled = scaleBitmap(bitmap, 600)
-                    val dir = File(context.filesDir, "folio_covers").apply { mkdirs() }
-                    val target = File(dir, "$bookId.webp")
-                    FileOutputStream(target).use { out ->
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            scaled.compress(Bitmap.CompressFormat.WEBP_LOSSY, 85, out)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            scaled.compress(Bitmap.CompressFormat.WEBP, 85, out)
+                        if (coverUrl != null && seenUrls.add(coverUrl)) {
+                            results.add(
+                                OnlineCoverCandidate(
+                                    title = t,
+                                    author = a,
+                                    coverUrl = coverUrl,
+                                    source = "Open Library",
+                                    resolutionLabel = "L-Size"
+                                )
+                            )
                         }
                     }
-                    if (scaled != bitmap) scaled.recycle()
-                    bitmap.recycle()
-                    Log.d(TAG, "Saved cover to ${target.absolutePath} (size: ${target.length()} bytes)")
-                    return@withContext target.name // store relative file name per §5.5 item 4
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Open Library cover search error: ${e.message}")
+        }
+
+        // 3. Google Books Search API
+        try {
+            val qBase = URLEncoder.encode(trimmedQuery, "UTF-8")
+            val gUrl = if (trimmedAuthor.isNotBlank()) {
+                "https://www.googleapis.com/books/v1/volumes?q=$qBase+${URLEncoder.encode(trimmedAuthor, "UTF-8")}&maxResults=25"
+            } else {
+                "https://www.googleapis.com/books/v1/volumes?q=$qBase&maxResults=25"
+            }
+            val jsonStr = httpGet(gUrl)
+            if (!jsonStr.isNullOrBlank()) {
+                val root = JSONObject(jsonStr)
+                val items = root.optJSONArray("items")
+                if (items != null) {
+                    for (i in 0 until items.length()) {
+                        val item = items.getJSONObject(i)
+                        val info = item.optJSONObject("volumeInfo") ?: continue
+                        val t = info.optString("title", trimmedQuery)
+                        val authorsArr = info.optJSONArray("authors")
+                        val a = if (authorsArr != null && authorsArr.length() > 0) authorsArr.optString(0, "") else ""
+                        val imageLinks = info.optJSONObject("imageLinks")
+                        var thumb = when {
+                            imageLinks == null -> null
+                            imageLinks.has("extraLarge") -> imageLinks.getString("extraLarge")
+                            imageLinks.has("large") -> imageLinks.getString("large")
+                            imageLinks.has("medium") -> imageLinks.getString("medium")
+                            imageLinks.has("thumbnail") -> imageLinks.getString("thumbnail")
+                            imageLinks.has("smallThumbnail") -> imageLinks.getString("smallThumbnail")
+                            else -> null
+                        }
+                        if (thumb != null) {
+                            thumb = thumb.replace("http://", "https://")
+                                .replace("&edge=curl", "")
+                                .replace("zoom=1", "zoom=2")
+                            if (seenUrls.add(thumb)) {
+                                results.add(
+                                    OnlineCoverCandidate(
+                                        title = t,
+                                        author = a,
+                                        coverUrl = thumb,
+                                        source = "Google Books",
+                                        resolutionLabel = "Hi-Res"
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Google Books cover search error: ${e.message}")
+        }
+
+        if (results.isEmpty() && trimmedAuthor.isNotEmpty()) {
+            return@withContext searchOnlineCovers(trimmedQuery, null)
+        }
+        if (results.isEmpty()) {
+            val latinOnly = trimmedQuery.replace(Regex("[^a-zA-Z0-9\\s\\-':,]"), " ").trim().replace(Regex("\\s+"), " ")
+            if (latinOnly.isNotEmpty() && latinOnly != trimmedQuery) {
+                return@withContext searchOnlineCovers(latinOnly, null)
+            }
+        }
+
+        results
+    }
+
+    suspend fun searchCoversWithAutoFallback(rawQuery: String, titleOnly: String = ""): List<OnlineCoverCandidate> {
+        val primary = searchOnlineCovers(rawQuery.trim())
+        if (primary.isNotEmpty()) return primary
+        val cleanTitle = titleOnly.trim()
+        if (cleanTitle.isNotEmpty() && !cleanTitle.equals(rawQuery.trim(), ignoreCase = true)) {
+            val fallback = searchOnlineCovers(cleanTitle)
+            if (fallback.isNotEmpty()) return fallback
+        }
+        val latinOnly = rawQuery.replace(Regex("[^a-zA-Z0-9\\s\\-':,]"), " ").trim().replace(Regex("\\s+"), " ")
+        if (latinOnly.isNotEmpty() && latinOnly != rawQuery.trim() && latinOnly != cleanTitle) {
+            return searchOnlineCovers(latinOnly)
+        }
+        return emptyList()
+    }
+
+    private fun downloadBytesWithRedirects(imageUrl: String): ByteArray? {
+        var currentUrl = imageUrl.replace("http://", "https://")
+        var redirects = 0
+        while (redirects < 6) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL(currentUrl)
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 10000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) Mezura/1.0")
+                }
+                connection.connect()
+                val code = connection.responseCode
+                if (code in 300..399) {
+                    val loc = connection.getHeaderField("Location") ?: break
+                    currentUrl = if (loc.startsWith("http")) loc else URL(url, loc).toString()
+                    currentUrl = currentUrl.replace("http://", "https://")
+                    connection.disconnect()
+                    redirects++
+                    continue
+                }
+                if (code in 200..299) {
+                    val bytes = connection.inputStream.use { it.readBytes() }
+                    if (bytes.size > 150) {
+                        return bytes
+                    }
+                }
+                break
+            } catch (_: Exception) {
+                break
+            } finally {
+                connection?.disconnect()
+            }
+        }
+        return null
+    }
+
+    suspend fun downloadCoverToCustom(context: Context, bookIdPrefix: String, imageUrl: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val bytes = downloadBytesWithRedirects(imageUrl) ?: return@withContext null
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+            val maxDim = 800
+            val scaled = scaleBitmap(bitmap, maxDim)
+            val dir = File(context.filesDir, "custom_covers").apply { mkdirs() }
+            val safeId = bookIdPrefix.ifBlank { "book" }.replace(Regex("[^a-zA-Z0-9_]"), "_")
+            val target = File(dir, "cover_${safeId}_${System.currentTimeMillis()}.jpg")
+            FileOutputStream(target).use { out ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            if (scaled != bitmap) scaled.recycle()
+            bitmap.recycle()
+            target.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadCoverToCustom error: ${e.message}")
             null
+        }
+    }
+
+    suspend fun downloadAndCacheCover(context: Context, bookId: String, imageUrl: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val bytes = downloadBytesWithRedirects(imageUrl) ?: return@withContext null
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+            val scaled = scaleBitmap(bitmap, 600)
+            val dir = File(context.filesDir, "folio_covers").apply { mkdirs() }
+            val target = File(dir, "$bookId.webp")
+            FileOutputStream(target).use { out ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    scaled.compress(Bitmap.CompressFormat.WEBP_LOSSY, 85, out)
+                } else {
+                    @Suppress("DEPRECATION")
+                    scaled.compress(Bitmap.CompressFormat.WEBP, 85, out)
+                }
+            }
+            if (scaled != bitmap) scaled.recycle()
+            bitmap.recycle()
+            target.name
         } catch (e: Exception) {
             Log.e(TAG, "Cover download failed: ${e.message}")
             null
-        } finally {
-            connection?.disconnect()
         }
     }
 
     suspend fun fetchCoverBitmap(imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {
-        var connection: HttpURLConnection? = null
         try {
-            val url = URL(imageUrl)
-            connection = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5000
-                readTimeout = 6000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Mezura/1.0 (Android)")
+            val bytes = downloadBytesWithRedirects(imageUrl) ?: return@withContext null
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+            if (bitmap.width <= 2 || bitmap.height <= 2) {
+                bitmap.recycle()
+                return@withContext null
             }
-            connection.connect()
-            val code = connection.responseCode
-            if (code in 200..299) {
-                val input: InputStream = connection.inputStream
-                val bitmap = BitmapFactory.decodeStream(input)
-                input.close()
-                if (bitmap != null) {
-                    val scaled = scaleBitmap(bitmap, 400)
-                    if (scaled != bitmap) bitmap.recycle()
-                    return@withContext scaled
-                }
-            }
-            null
+            val scaled = scaleBitmap(bitmap, 400)
+            if (scaled != bitmap) bitmap.recycle()
+            scaled
         } catch (_: Exception) {
             null
-        } finally {
-            connection?.disconnect()
         }
     }
 

@@ -106,6 +106,36 @@ object SequenceEngine {
     private var selectedRoutineId: String = "deep_work"
     private var cachedRoutines: List<Routine>? = null
 
+    var onStepAdvanced: ((SequenceStep?) -> Unit)? = null
+
+    fun prepareAndStartStep(context: Context, step: SequenceStep) {
+        when (step.tool) {
+            Tool.POMODORO -> {
+                val isBreak = step.title.contains("break", ignoreCase = true) ||
+                              step.title.contains("rest", ignoreCase = true) ||
+                              step.descriptor?.contains("break", ignoreCase = true) == true ||
+                              step.descriptor?.contains("rest", ignoreCase = true) == true ||
+                              step.variant == "break"
+                if (isBreak) {
+                    rocks.ndot.widgets.widgets.TimerEngine.setBreakMinutes(context, step.durationMinutes)
+                    rocks.ndot.widgets.widgets.TimerEngine.switchTo(context, rocks.ndot.widgets.widgets.TimerEngine.Phase.BREAK)
+                } else {
+                    rocks.ndot.widgets.widgets.TimerEngine.setFocusMinutes(context, step.durationMinutes)
+                    rocks.ndot.widgets.widgets.TimerEngine.switchTo(context, rocks.ndot.widgets.widgets.TimerEngine.Phase.FOCUS)
+                }
+                rocks.ndot.widgets.widgets.TimerEngine.start(context)
+            }
+            Tool.BREATHING -> {
+                val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                sp.edit().putLong("active_step_breath_sec", step.durationMinutes * 60L).apply()
+            }
+            Tool.HOURGLASS -> {
+                rocks.ndot.widgets.widgets.HourglassEngine.start(context, step.durationMinutes * 60_000L)
+            }
+            else -> Unit
+        }
+    }
+
     fun getRoutines(context: Context): List<Routine> {
         if (cachedRoutines != null) return cachedRoutines!!
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -295,6 +325,9 @@ object SequenceEngine {
         )
         activeRun = run
         persistActiveRun(context)
+        run.currentStep?.let { firstStep ->
+            prepareAndStartStep(context, firstStep)
+        }
         return run
     }
 
@@ -345,11 +378,17 @@ object SequenceEngine {
         if (run.isComplete) {
             run.state = SequenceState.COMPLETED
             persistActiveRun(context)
+            onStepAdvanced?.invoke(null)
             return null
         } else {
             run.state = SequenceState.RUNNING_STEP
             persistActiveRun(context)
-            return run.currentStep
+            val nextStep = run.currentStep
+            if (nextStep != null) {
+                prepareAndStartStep(context, nextStep)
+            }
+            onStepAdvanced?.invoke(nextStep)
+            return nextStep
         }
     }
 

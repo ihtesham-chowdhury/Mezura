@@ -62,7 +62,9 @@ fun HabitLogSheet(
     existingEntry: Entry?,
     autoQuantity: Double,
     onDismiss: () -> Unit,
-    onSave: (quantity: Double, note: String?) -> Unit
+    onSave: (quantity: Double, note: String?) -> Unit,
+    onEditHabit: () -> Unit = {},
+    onDeleteHabit: () -> Unit = {}
 ) {
     val initialQuantity = existingEntry?.quantity ?: (if (habit.measure == Measure.DONE) 1.0 else 0.0)
     var quantity by remember { mutableDoubleStateOf(initialQuantity) }
@@ -295,6 +297,46 @@ fun HabitLogSheet(
                     text = "SAVE EFFORT",
                     style = TextStyle(color = Ink.GROUND, fontSize = 13.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
                 )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // Secondary Actions: Edit Settings & Delete Habit
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Ink.SURFACE_2)
+                        .border(1.dp, Ink.HAIRLINE_V4, RoundedCornerShape(10.dp))
+                        .clickable { onEditHabit() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicText(
+                        text = "EDIT HABIT",
+                        style = TextStyle(color = Ink.TEXT_WARM, fontSize = 11.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.SemiBold)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Ink.SURFACE_2)
+                        .border(1.dp, Color(0x33FF6B6B), RoundedCornerShape(10.dp))
+                        .clickable { onDeleteHabit() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicText(
+                        text = "DELETE HABIT",
+                        style = TextStyle(color = Color(0xFFFF6B6B), fontSize = 11.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.SemiBold)
+                    )
+                }
             }
         }
     }
@@ -534,26 +576,33 @@ fun HabitEditorSheet(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(48.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (isSel) Ink.AMBER else Ink.SURFACE_2)
+                            .border(1.dp, if (isSel) Ink.AMBER else Ink.HAIRLINE_V4, RoundedCornerShape(8.dp))
                             .clickable { weight = w },
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
                             BasicText(
                                 text = w.name,
+                                maxLines = 1,
                                 style = TextStyle(
                                     color = if (isSel) Ink.GROUND else Ink.TEXT_WARM,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     fontFamily = Fonts.mono,
                                     fontWeight = FontWeight.Bold
                                 )
                             )
+                            Spacer(Modifier.height(2.dp))
                             BasicText(
                                 text = "${w.factor}×",
+                                maxLines = 1,
                                 style = TextStyle(
-                                    color = if (isSel) Ink.GROUND.copy(alpha = 0.8f) else Ink.TEXT_MUTED_V4,
+                                    color = if (isSel) Ink.GROUND.copy(alpha = 0.85f) else Ink.TEXT_MUTED_V4,
                                     fontSize = 9.sp,
                                     fontFamily = Fonts.mono
                                 )

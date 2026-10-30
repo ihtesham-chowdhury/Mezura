@@ -1,6 +1,8 @@
 package rocks.ndot.widgets.instruments.folio
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,11 +32,7 @@ data class BookItem(
     val trackMode: BookTrackMode = BookTrackMode.PAGES,
 ) {
     val progressFraction: Float
-        get() = if (trackMode == BookTrackMode.PERCENTAGE) {
-            (currentPage.toFloat() / 100f).coerceIn(0f, 1f)
-        } else {
-            if (totalPages > 0) (currentPage.toFloat() / totalPages).coerceIn(0f, 1f) else 0f
-        }
+        get() = if (totalPages > 0) (currentPage.toFloat() / totalPages).coerceIn(0f, 1f) else 0f
 
     fun resolveCoverFile(context: Context): File? {
         val custom = customCoverPath?.let { p ->
@@ -83,10 +81,23 @@ object BookStore {
         }
     }
 
+    fun loadCoverBitmap(context: Context, bookId: String): Bitmap? {
+        val book = _booksFlow.value.firstOrNull { it.id == bookId }
+            ?: loadAll(context).firstOrNull { it.id == bookId }
+            ?: return null
+        val file = book.resolveCoverFile(context) ?: return null
+        if (!file.exists()) return null
+        return try {
+            BitmapFactory.decodeFile(file.absolutePath)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun loadAll(context: Context): List<BookItem> {
         val file = File(context.filesDir, FILE_NAME)
         if (!file.exists()) {
-            val defaults = defaultSeedBooks()
+            val defaults = defaultSeedBooks(context)
             saveAll(context, defaults)
             _booksFlow.value = defaults
             return defaults
@@ -122,8 +133,9 @@ object BookStore {
                     )
                 )
             }
-            if (list.isEmpty()) {
-                val defaults = defaultSeedBooks()
+            val onlyOldSeeds = list.isNotEmpty() && list.all { it.id in listOf("seed-1", "seed-2", "seed-3", "seed-4", "seed-5", "seed-6") }
+            if (list.isEmpty() || onlyOldSeeds) {
+                val defaults = defaultSeedBooks(context)
                 saveAll(context, defaults)
                 _booksFlow.value = defaults
                 defaults
@@ -132,7 +144,7 @@ object BookStore {
                 list
             }
         } catch (_: Exception) {
-            val defaults = defaultSeedBooks()
+            val defaults = defaultSeedBooks(context)
             _booksFlow.value = defaults
             defaults
         }
@@ -211,10 +223,10 @@ object BookStore {
 
     fun loadSessions(context: Context): List<ReadingSessionLog> {
         val file = File(context.filesDir, FILE_NAME)
-        if (!file.exists()) return emptyList()
+        if (!file.exists()) return defaultSeedSessions()
         return try {
             val obj = JSONObject(file.readText())
-            val arr = obj.optJSONArray("sessions") ?: return emptyList()
+            val arr = obj.optJSONArray("sessions") ?: return defaultSeedSessions()
             val list = mutableListOf<ReadingSessionLog>()
             for (i in 0 until arr.length()) {
                 val s = arr.getJSONObject(i)
@@ -235,11 +247,69 @@ object BookStore {
                     )
                 )
             }
-            _sessionsFlow.value = list
-            list
+            if (list.isEmpty()) {
+                val defaults = defaultSeedSessions()
+                saveSessions(context, defaults)
+                _sessionsFlow.value = defaults
+                defaults
+            } else {
+                _sessionsFlow.value = list
+                list
+            }
         } catch (_: Exception) {
-            emptyList()
+            defaultSeedSessions()
         }
+    }
+
+    private fun defaultSeedSessions(): List<ReadingSessionLog> {
+        val now = System.currentTimeMillis()
+        val dayMs = 86_400_000L
+        return listOf(
+            ReadingSessionLog(
+                id = "seed-session-1",
+                bookId = "seed-atomic-habits",
+                timestampMillis = now - 11L * dayMs,
+                startPage = 0,
+                endPage = 35,
+                pagesRead = 35,
+                durationMinutes = 45,
+                durationSeconds = 45 * 60L,
+                manuallyLogged = true
+            ),
+            ReadingSessionLog(
+                id = "seed-session-2",
+                bookId = "seed-atomic-habits",
+                timestampMillis = now - 7L * dayMs,
+                startPage = 35,
+                endPage = 72,
+                pagesRead = 37,
+                durationMinutes = 48,
+                durationSeconds = 48 * 60L,
+                manuallyLogged = true
+            ),
+            ReadingSessionLog(
+                id = "seed-session-3",
+                bookId = "seed-atomic-habits",
+                timestampMillis = now - 4L * dayMs,
+                startPage = 72,
+                endPage = 110,
+                pagesRead = 38,
+                durationMinutes = 50,
+                durationSeconds = 50 * 60L,
+                manuallyLogged = true
+            ),
+            ReadingSessionLog(
+                id = "seed-session-4",
+                bookId = "seed-atomic-habits",
+                timestampMillis = now - 1L * dayMs,
+                startPage = 110,
+                endPage = 142,
+                pagesRead = 32,
+                durationMinutes = 40,
+                durationSeconds = 40 * 60L,
+                manuallyLogged = true
+            )
+        )
     }
 
     fun saveSessions(context: Context, sessions: List<ReadingSessionLog>) {
@@ -292,77 +362,41 @@ object BookStore {
         saveSessions(context, sessions)
     }
 
-    private fun defaultSeedBooks(): List<BookItem> {
+    fun ensureAtomicHabitsCover(context: Context): String? {
+        val coversDir = File(context.filesDir, "folio_covers").apply { mkdirs() }
+        val destFile = File(coversDir, "atomic_habits_cover.jpg")
+        if (!destFile.exists() || destFile.length() == 0L) {
+            try {
+                context.assets.open("covers/atomic_habits_cover.jpg").use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } catch (e: Exception) {
+                return null
+            }
+        }
+        return destFile.absolutePath
+    }
+
+    private fun defaultSeedBooks(context: Context): List<BookItem> {
         val now = System.currentTimeMillis()
         val dayMs = 86_400_000L
+        val coverPath = ensureAtomicHabitsCover(context)
         return listOf(
             BookItem(
-                id = "seed-1",
-                title = "ইবনু তাইমিয়া: জীবন ও কর্ম",
-                author = "আকরাম হোসাইন ও আবু তালহা",
+                id = "seed-atomic-habits",
+                title = "Atomic Habits",
+                author = "James Clear",
                 totalPages = 320,
-                currentPage = 187,
-                categories = listOf("Islamic", "History", "Biography"),
-                rating = 5,
-                startedEpochMillis = now - 21L * dayMs,
-                status = BookStatus.READING,
-            ),
-            BookItem(
-                id = "seed-2",
-                title = "কসবি",
-                author = "হরিশংকর জলদাস",
-                totalPages = 280,
                 currentPage = 142,
-                categories = listOf("Bengali", "Novel"),
-                rating = 4,
-                startedEpochMillis = now - 35L * dayMs,
-                status = BookStatus.READING,
-            ),
-            BookItem(
-                id = "seed-3",
-                title = "নিহিলিজম ও ইসলাম",
-                author = "মারুফ শাহ",
-                totalPages = 196,
-                currentPage = 80,
-                categories = listOf("Philosophy", "Religion"),
-                rating = 4,
-                startedEpochMillis = now - 27L * dayMs,
-                status = BookStatus.READING,
-            ),
-            BookItem(
-                id = "seed-4",
-                title = "সম্রাট",
-                author = "সৈয়দ মুজতবা আলী",
-                totalPages = 240,
-                currentPage = 240,
-                categories = listOf("Bengali", "Literature"),
-                rating = 4,
-                startedEpochMillis = now - 45L * dayMs,
-                finishedEpochMillis = now - 5L * dayMs,
-                status = BookStatus.COMPLETED,
-            ),
-            BookItem(
-                id = "seed-5",
-                title = "Empire: How Britain Made the Modern World",
-                author = "Niall Ferguson",
-                totalPages = 416,
-                currentPage = 98,
-                categories = listOf("History", "Politics"),
-                rating = 4,
-                startedEpochMillis = now - 10L * dayMs,
-                status = BookStatus.READING,
-            ),
-            BookItem(
-                id = "seed-6",
-                title = "আমারে দেব না ভুলিতে",
-                author = "আসিফ এহসান রবি",
-                totalPages = 310,
-                currentPage = 310,
-                categories = listOf("Memoir", "Literature"),
+                categories = listOf("Self-Help", "Productivity", "Personal Development"),
+                coverLocalPath = coverPath,
+                customCoverPath = coverPath,
                 rating = 5,
-                startedEpochMillis = now - 60L * dayMs,
-                finishedEpochMillis = now - 15L * dayMs,
-                status = BookStatus.COMPLETED,
+                startedEpochMillis = now - 14L * dayMs,
+                status = BookStatus.READING,
+                trackMode = BookTrackMode.PAGES
             )
         )
     }

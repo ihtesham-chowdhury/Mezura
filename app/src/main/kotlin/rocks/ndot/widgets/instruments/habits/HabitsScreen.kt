@@ -252,12 +252,7 @@ fun HabitsScreen() {
                     selectedIndex = selectedTab,
                     onSelect = {
                         selectedTab = it
-                        val key = when (it) {
-                            0 -> "city"
-                            2 -> "dreams"
-                            else -> "today"
-                        }
-                        AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_HABITS_TAB, key, "Habits Tab")
+                        Feedback.tick(context)
                     },
                     onLongPressDefault = { idx ->
                         val key = when (idx) {
@@ -440,6 +435,18 @@ fun HabitsScreen() {
             onSave = { q, note ->
                 if (existing != null) HabitMasterStore.removeEntry(context, existing.id)
                 HabitMasterStore.logEntry(context, h.id, selectedDay, q, EntryKind.LOG, note)
+                refreshData()
+                logSheetHabit = null
+                Feedback.tick(context)
+            },
+            onEditHabit = {
+                val toEdit = logSheetHabit
+                logSheetHabit = null
+                editingHabit = toEdit
+            },
+            onDeleteHabit = {
+                val delId = h.id
+                HabitMasterStore.deleteHabit(context, delId)
                 refreshData()
                 logSheetHabit = null
                 Feedback.tick(context)
@@ -913,7 +920,11 @@ private fun TodayTabContent(
                 BasicText("THIS PERIOD", style = TextStyle(color = Ink.TEXT_FAINT_V4, fontSize = 10.sp, fontFamily = Fonts.mono))
             }
             items(periodHabits, key = { it.id }) { habit ->
-                PeriodHabitRow(habit = habit, onOpenLog = { onOpenLog(habit) })
+                PeriodHabitRow(
+                    habit = habit,
+                    onOpenLog = { onOpenLog(habit) },
+                    onEdit = { onEditHabit(habit) }
+                )
             }
         }
 
@@ -1026,6 +1037,16 @@ fun HabitQuantityRow(
                         text = habit.name,
                         style = TextStyle(color = Ink.TEXT_WARM, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     )
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .clickable { onEdit() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        BasicText("✎", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 12.sp))
+                    }
                 }
 
                 if (habit.measure == Measure.DONE) {
@@ -1135,7 +1156,7 @@ fun HabitQuantityRow(
 // -----------------------------------------------------------------------------
 
 @Composable
-fun PeriodHabitRow(habit: HabitItem, onOpenLog: () -> Unit) {
+fun PeriodHabitRow(habit: HabitItem, onOpenLog: () -> Unit, onEdit: () -> Unit = {}) {
     val context = LocalContext.current
     val total = HabitMasterStore.getDayTotalQuantity(context, habit.id, HabitMasterStore.today())
     val remaining = (habit.target - total).coerceAtLeast(0.0).toInt()
@@ -1149,9 +1170,22 @@ fun PeriodHabitRow(habit: HabitItem, onOpenLog: () -> Unit) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                BasicText(habit.name, style = TextStyle(color = Ink.TEXT_WARM, fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BasicText(habit.name, style = TextStyle(color = Ink.TEXT_WARM, fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .clickable { onEdit() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        BasicText("✎", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 12.sp))
+                    }
+                }
                 BasicText("${total.toInt()} / ${habit.target.toInt()} ${habit.unit}", style = TextStyle(color = Ink.AMBER, fontSize = 12.sp, fontFamily = Fonts.mono))
             }
             Spacer(Modifier.height(6.dp))

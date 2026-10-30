@@ -74,7 +74,8 @@ fun StopwatchScreen() {
     var snap by remember { mutableStateOf(StopwatchEngine.snapshot(context)) }
     val accent = remember { Appearance.accent(context) }
     val crownPress = remember { Animatable(0f) }
-    val pusherPress = remember { Animatable(0f) }
+    val leftPusherPress = remember { Animatable(0f) }
+    val rightPusherPress = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val ticker = rememberFrameTicker(snap.running)
 
@@ -94,7 +95,8 @@ fun StopwatchScreen() {
         }
     }
 
-    fun onCrown() {
+    // Button 1: Top Crown (12:00) -> Start / Pause / Resume
+    fun onStartStop() {
         val wasRunning = snap.running
         StopwatchEngine.toggle(context)
         click(context, if (wasRunning) Clicks.Kind.STOP else Clicks.Kind.START)
@@ -102,20 +104,25 @@ fun StopwatchScreen() {
         commit()
     }
 
-    fun onPusher() {
+    // Button 2: Right Pusher (1:30) -> Lap Count Only
+    fun onLap() {
         val now = System.currentTimeMillis()
-        when {
-            snap.running -> {
-                StopwatchEngine.recordLap(context)
-                click(context, Clicks.Kind.LAP)
-            }
-            snap.elapsedAt(now) > 0L -> {
-                StopwatchEngine.reset(context)
-                click(context, Clicks.Kind.STOP)
-            }
-            else -> return
+        if (snap.running) {
+            StopwatchEngine.recordLap(context)
+            click(context, Clicks.Kind.LAP)
+        } else if (snap.elapsedAt(now) > 0L) {
+            StopwatchEngine.recordLap(context)
+            click(context, Clicks.Kind.LAP)
         }
-        press(pusherPress)
+        press(rightPusherPress)
+        commit()
+    }
+
+    // Button 3: Left Pusher (10:30) -> Reset All Only
+    fun onReset() {
+        StopwatchEngine.reset(context)
+        click(context, Clicks.Kind.STOP)
+        press(leftPusherPress)
         commit()
     }
 
@@ -133,8 +140,6 @@ fun StopwatchScreen() {
         )
 
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-            // Fit the case to whichever dimension runs out first, so it is never cropped or
-            // squashed - the fix for the face that didn't scale with the screen.
             val faceWidth = min(maxWidth.value, maxHeight.value * StopwatchRenderer.ASPECT).dp
             WatchFace(
                 modifier = Modifier.size(faceWidth, faceWidth / StopwatchRenderer.ASPECT).align(Alignment.Center),
@@ -143,16 +148,20 @@ fun StopwatchScreen() {
                 accent = accent,
                 ticker = { ticker.longValue },
                 crownPress = { crownPress.value },
-                pusherPress = { pusherPress.value },
-                onCrown = ::onCrown,
-                onPusher = ::onPusher,
+                leftPusherPress = { leftPusherPress.value },
+                rightPusherPress = { rightPusherPress.value },
+                onReset = ::onReset,
+                onLap = ::onLap,
+                onStartStop = ::onStartStop,
             )
         }
 
         Readout(snap)
         Spacer(Modifier.height(4.dp))
         BasicText(
-            if (snap.running) "PUSHER · LAP" else if (snap.accumulated > 0) "CROWN · RESUME    PUSHER · RESET" else "PRESS THE CROWN TO START",
+            if (snap.running) "LEFT · RESET      TOP · PAUSE      RIGHT · LAP"
+            else if (snap.accumulated > 0) "LEFT · RESET      TOP · RESUME      RIGHT · LAP"
+            else "LEFT · RESET      TOP · START      RIGHT · LAP",
             style = labelStyle(Ink.Faint, 10.sp).copy(textAlign = TextAlign.Center),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -178,28 +187,39 @@ private fun WatchFace(
     accent: Int,
     ticker: () -> Long,
     crownPress: () -> Float,
-    pusherPress: () -> Float,
-    onCrown: () -> Unit,
-    onPusher: () -> Unit,
+    leftPusherPress: () -> Float,
+    rightPusherPress: () -> Float,
+    onReset: () -> Unit,
+    onLap: () -> Unit,
+    onStartStop: () -> Unit,
 ) {
     val body = remember { BodyCache() }
     val currentSnap by androidx.compose.runtime.rememberUpdatedState(snap)
     Canvas(
         modifier.pointerInput(Unit) {
-            val minTouch = 28.dp.toPx()
+            val minTouch = 32.dp.toPx()
             awaitEachGesture {
                 val down = awaitFirstDown()
                 val g = StopwatchRenderer.geometry(size.width, size.height)
-                // A pusher acts on the way down, like the real thing - not on release.
                 when {
-                    g.crownHit(down.position.x, down.position.y, minTouch) -> { down.consume(); onCrown() }
-                    g.pusherHit(down.position.x, down.position.y, minTouch) -> { down.consume(); onPusher() }
+                    g.crownHit(down.position.x, down.position.y, minTouch) -> {
+                        down.consume()
+                        onStartStop()
+                    }
+                    g.rightPusherHit(down.position.x, down.position.y, minTouch) -> {
+                        down.consume()
+                        onLap()
+                    }
+                    g.leftPusherHit(down.position.x, down.position.y, minTouch) -> {
+                        down.consume()
+                        onReset()
+                    }
                 }
                 waitForUpOrCancellation()
             }
         }
     ) {
-        ticker() // redraw every frame while running
+        ticker()
         val w = size.width.toInt()
         val h = size.height.toInt()
         if (w <= 0 || h <= 0) return@Canvas
@@ -207,7 +227,7 @@ private fun WatchFace(
         val s = currentSnap
         drawIntoCanvas { canvas ->
             val c = canvas.nativeCanvas
-            StopwatchRenderer.drawControls(c, g, dial, crownPress(), pusherPress())
+            StopwatchRenderer.drawControls(c, g, dial, crownPress(), leftPusherPress(), rightPusherPress())
             c.drawBitmap(body.get(w, h, dial, g), 0f, 0f, null)
             StopwatchRenderer.drawHands(
                 c, g,

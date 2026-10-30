@@ -8,11 +8,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,7 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +47,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import rocks.ndot.widgets.kit.Feedback
 import rocks.ndot.widgets.kit.Fonts
 import rocks.ndot.widgets.kit.Ink
 import java.time.LocalDate
@@ -58,11 +64,20 @@ import kotlin.math.min
 fun FolioStatsCanvas(
     books: List<BookItem>,
     sessions: List<ReadingSessionLog>,
+    selectedBook: BookItem? = null,
+    onOpenShareStudio: ((BookCompletionStats, BookStatsDesignStyle) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     val animProgress = remember { Animatable(0f) }
+
+    var studioStyle by remember { mutableStateOf(BookStatsDesignStyle.STYLE_1_ARCHIVAL_SPLIT_FLAP) }
+    var studioBookId by remember(selectedBook, books) {
+        mutableStateOf(selectedBook?.id ?: books.firstOrNull()?.id ?: "")
+    }
+    val currentStudioBook = books.firstOrNull { it.id == studioBookId } ?: books.firstOrNull()
 
     LaunchedEffect(Unit) {
         animProgress.animateTo(1f, animationSpec = tween(900, easing = FastOutSlowInEasing))
@@ -107,6 +122,184 @@ fun FolioStatsCanvas(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // ---------------------------------------------------------------------
+        // 1. MEZURA READING RECORD (9 DESIGN STYLES STUDIO)
+        // ---------------------------------------------------------------------
+        if (currentStudioBook != null) {
+            val studioStats = remember(currentStudioBook, sessions) {
+                BookStatsCalculator.compute(context, currentStudioBook, sessions)
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF14161C))
+                    .border(1.dp, Color(0xFF2B2F3B), RoundedCornerShape(20.dp))
+                    .padding(16.dp)
+            ) {
+                // Studio Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        BasicText(
+                            text = "MEZURA READING RECORD",
+                            style = TextStyle(
+                                color = Ink.BRASS,
+                                fontSize = 11.5.sp,
+                                fontFamily = Fonts.mono,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp
+                            )
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        BasicText(
+                            text = "${studioStyle.serialNumber} / 9 · ${studioStyle.displayTitle}",
+                            style = TextStyle(color = Color(0xFFDCE2EC), fontSize = 11.sp, fontFamily = Fonts.sans)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                // Book Selector (if user has multiple books)
+                if (books.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        books.forEach { b ->
+                            val isSel = b.id == currentStudioBook.id
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSel) Ink.BRASS else Color(0xFF1E222B))
+                                    .clickable {
+                                        studioBookId = b.id
+                                        Feedback.tick(context)
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                BasicText(
+                                    text = b.title.take(20) + if (b.title.length > 20) "…" else "",
+                                    style = TextStyle(
+                                        color = if (isSel) Ink.GROUND else Color(0xFFB8BFCD),
+                                        fontSize = 10.sp,
+                                        fontFamily = Fonts.mono,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+
+                // 9-Design Style Selector Strip (1..9)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    BookStatsDesignStyle.SERIAL_LIST.forEach { style ->
+                        val isSel = style == studioStyle
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) Color(0xFFD6A85A) else Color(0xFF1E2129))
+                                .border(1.dp, if (isSel) Color(0xFFE8C278) else Color(0xFF2F3442), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    studioStyle = style
+                                    Feedback.tick(context)
+                                }
+                                .padding(horizontal = 9.dp, vertical = 6.dp)
+                        ) {
+                            BasicText(
+                                text = style.shortBadge,
+                                style = TextStyle(
+                                    color = if (isSel) Color(0xFF101216) else Color(0xFF9EACB8),
+                                    fontSize = 10.sp,
+                                    fontFamily = Fonts.mono,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                // 3:4 Live Plate Card Preview
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(0.75f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, Color(0xFF333847), RoundedCornerShape(14.dp))
+                        .clickable {
+                            onOpenShareStudio?.invoke(studioStats, studioStyle)
+                        }
+                ) {
+                    MezuraBookStatsCardRenderer(
+                        stats = studioStats,
+                        style = studioStyle,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // Actions: Share PNG (1080x1440) & Fullscreen Modal
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1.6f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Ink.BRASS)
+                            .clickable {
+                                scope.launch {
+                                    BookStatsBitmapExporter.renderAndShare(context, studioStats, studioStyle)
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        BasicText(
+                            text = "SHARE RECORD (PNG)",
+                            style = TextStyle(color = Ink.GROUND, fontSize = 11.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF222631))
+                            .border(1.dp, Color(0xFF363C4C), RoundedCornerShape(10.dp))
+                            .clickable {
+                                onOpenShareStudio?.invoke(studioStats, studioStyle)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        BasicText(
+                            text = "FULLSCREEN",
+                            style = TextStyle(color = Color(0xFFD4DAE6), fontSize = 11.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
+            }
+        }
+
         // Period Selector
         rocks.ndot.widgets.kit.NdotSegmented(
             options = periods,

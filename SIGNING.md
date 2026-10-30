@@ -11,7 +11,7 @@
 No. The only APK in this project is a **debug** build at
 `app/build/intermediates/apk/debug/app-debug.apk` — that's what Android Studio produced when
 you hit Run. It *is* signed, but with the automatic debug key from
-`C:\Users\The System Admin\.android\debug.keystore`, which every Android Studio install
+`~/.android/debug.keystore`, which every Android Studio install
 generates for itself. There is no release keystore for this project yet.
 
 There is one for a different project (`D:\Claude Code\Seamless\seamless-release.jks`) — don't
@@ -121,7 +121,7 @@ Right now `ndot-release` sits in the project folder. Move it outside the repo an
 at it with an absolute path in `keystore.properties`:
 
 ```properties
-storeFile=C:/Users/The System Admin/keys/ndot-release
+storeFile=C:/Users/<username>/keys/ndot-release
 ```
 
 (Forward slashes work fine on Windows and avoid backslash-escaping trouble.)

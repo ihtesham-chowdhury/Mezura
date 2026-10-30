@@ -62,12 +62,14 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -148,6 +150,7 @@ fun FolioScreen(
     var editBook by remember { mutableStateOf<BookItem?>(null) }
     var logPastBook by remember { mutableStateOf<BookItem?>(null) }
     var bookActionTarget by remember { mutableStateOf<BookItem?>(null) }
+    var completionFlowState by remember { mutableStateOf<BookCompletionFlowState>(BookCompletionFlowState.Idle) }
 
     // Filter & Sort
     var currentSort by remember { mutableStateOf(FolioSortOrder.RECENTLY_READ) }
@@ -214,166 +217,74 @@ fun FolioScreen(
         }
     }
 
+    val shelfScrollState = rememberScrollState()
+    val headerHeight = if (isSearchActive) 166.dp else 114.dp
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Ink.GROUND)
             .ndotScreenInsets()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // App Bar 56dp (below status bar inset)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Left [+] Add Button
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Ink.SURFACE_2)
-                        .clickable { showAddSheet = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    BasicText(
-                        text = "+",
-                        style = TextStyle(color = Ink.TEXT_WARM, fontSize = 20.sp, fontWeight = FontWeight.Light)
-                    )
-                }
-
-                // Center Title: READING
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    DotMatrixText(
-                        text = "READING",
-                        dotPitch = 2.4.dp,
-                        litColor = Ink.TEXT_WARM,
-                        glow = false
-                    )
-                }
-
-                // Right Icons: Search and Overflow ⋮
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(if (isSearchActive) Ink.SURFACE_3 else Ink.SURFACE_2)
-                            .clickable { isSearchActive = !isSearchActive },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        BasicText("🔍", style = TextStyle(fontSize = 14.sp))
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Ink.SURFACE_2)
-                            .clickable { showOverflowMenu = true },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        BasicText("⋮", style = TextStyle(color = Ink.TEXT_WARM, fontSize = 18.sp, fontWeight = FontWeight.Bold))
-                    }
-                }
-            }
-
-            // Search Bar (if active)
-            if (isSearchActive) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Ink.SURFACE_2)
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
-                ) {
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        textStyle = TextStyle(color = Ink.TEXT_WARM, fontSize = 14.sp, fontFamily = FontFamily.Default),
-                        cursorBrush = SolidColor(Ink.BRASS),
-                        decorationBox = { innerTextField ->
-                            if (searchQuery.isEmpty()) {
-                                BasicText("Search books by title or author...", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 13.sp))
-                            }
-                            innerTextField()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            // NdotSegmented (Shelf | Counter | Stats) - 40dp tall
-            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                NdotSegmented(
-                    options = tabOptions,
-                    selectedIndex = selectedTabIdx,
-                    onSelect = { idx ->
-                        selectedTabIdx = idx
-                        Feedback.tick(context)
-                    },
-                    onLongPressDefault = { idx ->
-                        val key = when (idx) {
-                            1 -> "counter"
-                            2 -> "stats"
-                            else -> "shelf"
-                        }
-                        AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_FOLIO_TAB, key, tabOptions[idx])
-                        Feedback.lock(context)
-                        Toast.makeText(context, "${tabOptions[idx]} set as startup tab", Toast.LENGTH_SHORT).show()
-                    }
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // Main View Area
-            Box(modifier = Modifier.weight(1f)) {
-                Crossfade(targetState = selectedTabIdx, label = "folioTabCrossfade") { tabIdx ->
-                    when (tabIdx) {
-                        0 -> { // Shelf
-                            ShelfView(
-                                books = displayedBooks,
-                                selectedBook = selectedBook,
-                                currentSort = currentSort,
-                                currentFilter = currentFilter,
-                                onOpenSortMenu = { showSortMenu = true },
-                                onSelectFilter = { f -> currentFilter = f },
-                                onSelectBook = { b ->
-                                    selectedBookId = b.id
-                                    bookActionTarget = b
-                                    Feedback.tick(context)
-                                },
-                                onContinueReading = { b ->
-                                    selectedBookId = b.id
-                                    Feedback.tick(context)
-                                    if (onNavigateToPomodoro != null) {
-                                        onNavigateToPomodoro(b)
-                                    } else {
-                                        focusBook = b
-                                    }
-                                },
-                                onAddFirstBook = { showAddSheet = true },
-                                onBookLongClick = { b ->
-                                    bookActionTarget = b
-                                    Feedback.tick(context)
+        // Main View Area (Shelf extends behind the floating liquid glass header!)
+        Box(modifier = Modifier.fillMaxSize()) {
+            Crossfade(targetState = selectedTabIdx, label = "folioTabCrossfade") { tabIdx ->
+                when (tabIdx) {
+                    0 -> { // Shelf
+                        ShelfView(
+                            books = displayedBooks,
+                            selectedBook = selectedBook,
+                            currentSort = currentSort,
+                            currentFilter = currentFilter,
+                            scrollState = shelfScrollState,
+                            topPadding = headerHeight,
+                            onOpenSortMenu = { showSortMenu = true },
+                            onSelectFilter = { f -> currentFilter = f },
+                            onSelectBook = { b ->
+                                selectedBookId = b.id
+                                bookActionTarget = b
+                                Feedback.tick(context)
+                            },
+                            onContinueReading = { b ->
+                                selectedBookId = b.id
+                                Feedback.tick(context)
+                                if (onNavigateToPomodoro != null) {
+                                    onNavigateToPomodoro(b)
+                                } else {
+                                    focusBook = b
                                 }
-                            )
-                        }
-                        1 -> { // Counter
+                            },
+                            onAddFirstBook = { showAddSheet = true },
+                            onBookLongClick = { b ->
+                                bookActionTarget = b
+                                Feedback.tick(context)
+                            }
+                        )
+                    }
+                    1 -> { // Counter
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = headerHeight)
+                                .padding(bottom = 108.dp)
+                        ) {
                             if (selectedBook != null) {
                                 CounterView(
                                     book = selectedBook,
                                     onSaveProgress = { newP ->
+                                        val wasCompleted = selectedBook.status == BookStatus.COMPLETED
+                                        val isCompletedNow = newP >= selectedBook.totalPages && selectedBook.totalPages > 0
                                         val updated = selectedBook.copy(
                                             currentPage = newP,
-                                            status = if (newP >= selectedBook.totalPages) BookStatus.COMPLETED else selectedBook.status
+                                            status = if (isCompletedNow) BookStatus.COMPLETED else selectedBook.status
                                         )
                                         BookStore.upsertBook(context, updated)
+                                        if (!wasCompleted && isCompletedNow) {
+                                            completionFlowState = BookCompletionFlowState.AwaitingStarRating(
+                                                book = updated,
+                                                initialRating = if (updated.rating in 1..5) updated.rating else 5
+                                            )
+                                        }
                                     },
                                     onLogSession = { log ->
                                         BookStore.addSession(context, log)
@@ -399,13 +310,144 @@ fun FolioScreen(
                                 }
                             }
                         }
-                        2 -> { // Stats
-                            FolioStatsCanvas(books = books, sessions = sessions)
+                    }
+                    2 -> { // Stats
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = headerHeight)
+                        ) {
+                            GrandLibraryFolioStatsScreen(
+                                books = books,
+                                sessions = sessions,
+                                selectedBook = selectedBook,
+                                onOpenShareStudio = { stats, style ->
+                                    completionFlowState = BookCompletionFlowState.SelectingShareStyle(stats, style)
+                                }
+                            )
                         }
                     }
                 }
             }
+        }
 
+        // Apple Liquid Glass Reading Header (floats on top of scrolling library!)
+        LiquidGlassReadingHeader(
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // App Bar 56dp (below status bar inset)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left [+] Add Button
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Ink.SURFACE_2)
+                            .clickable { showAddSheet = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        BasicText(
+                            text = "+",
+                            style = TextStyle(color = Ink.TEXT_WARM, fontSize = 20.sp, fontWeight = FontWeight.Light)
+                        )
+                    }
+
+                    // Center Title: READING
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        DotMatrixText(
+                            text = "READING",
+                            dotPitch = 2.4.dp,
+                            litColor = Ink.TEXT_WARM,
+                            glow = false
+                        )
+                    }
+
+                    // Right Icons: Search and Overflow ⋮
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (isSearchActive) Ink.SURFACE_3 else Ink.SURFACE_2)
+                                .clickable { isSearchActive = !isSearchActive },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            BasicText("🔍", style = TextStyle(fontSize = 14.sp))
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Ink.SURFACE_2)
+                                .clickable { showOverflowMenu = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            BasicText("⋮", style = TextStyle(color = Ink.TEXT_WARM, fontSize = 18.sp, fontWeight = FontWeight.Bold))
+                        }
+                    }
+                }
+
+                // Search Bar (if active)
+                if (isSearchActive) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Ink.SURFACE_2)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            textStyle = TextStyle(color = Ink.TEXT_WARM, fontSize = 14.sp, fontFamily = FontFamily.Default),
+                            cursorBrush = SolidColor(Ink.BRASS),
+                            decorationBox = { innerTextField ->
+                                if (searchQuery.isEmpty()) {
+                                    BasicText("Search books by title or author...", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 13.sp))
+                                }
+                                innerTextField()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                // NdotSegmented (Shelf | Counter | Stats) - 40dp tall
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    NdotSegmented(
+                        options = tabOptions,
+                        selectedIndex = selectedTabIdx,
+                        onSelect = { idx ->
+                            selectedTabIdx = idx
+                            Feedback.tick(context)
+                        },
+                        onLongPressDefault = { idx ->
+                            val key = when (idx) {
+                                1 -> "counter"
+                                2 -> "stats"
+                                else -> "shelf"
+                            }
+                            AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_FOLIO_TAB, key, tabOptions[idx])
+                            Feedback.lock(context)
+                            Toast.makeText(context, "${tabOptions[idx]} set as startup tab", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+            }
+        }
+
+        BottomLiquidGlassVignette(modifier = Modifier.align(Alignment.BottomCenter))
+        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
             NavSpacer()
         }
 
@@ -559,6 +601,12 @@ fun FolioScreen(
                     selectedTabIdx = 1
                     bookActionTarget = null
                 },
+                onOpenStatsStudio = {
+                    val target = b
+                    bookActionTarget = null
+                    val stats = BookStatsCalculator.compute(context, target, sessions)
+                    completionFlowState = BookCompletionFlowState.SelectingShareStyle(stats)
+                },
                 onEdit = {
                     val target = b
                     bookActionTarget = null
@@ -597,7 +645,16 @@ fun FolioScreen(
                     }
                 },
                 onUpdateBook = { updated ->
-                    BookStore.upsertBook(context, updated)
+                    val wasCompleted = b.status == BookStatus.COMPLETED
+                    val isNowCompleted = updated.status == BookStatus.COMPLETED || (updated.currentPage >= updated.totalPages && updated.totalPages > 0)
+                    val finalUpdated = if (isNowCompleted && updated.status != BookStatus.COMPLETED) updated.copy(status = BookStatus.COMPLETED) else updated
+                    BookStore.upsertBook(context, finalUpdated)
+                    if (!wasCompleted && isNowCompleted) {
+                        completionFlowState = BookCompletionFlowState.AwaitingStarRating(
+                            book = finalUpdated,
+                            initialRating = if (finalUpdated.rating in 1..5) finalUpdated.rating else 5
+                        )
+                    }
                 }
             )
         }
@@ -629,16 +686,49 @@ fun FolioScreen(
                 onDismiss = { logPastBook = null },
                 onSave = { sessionLog ->
                     BookStore.addSession(context, sessionLog)
+                    val wasCompleted = b.status == BookStatus.COMPLETED
                     val nextCurrentPage = maxOf(b.currentPage, sessionLog.endPage).coerceAtMost(b.totalPages)
-                    val nextStatus = if (nextCurrentPage >= b.totalPages && b.totalPages > 0) BookStatus.COMPLETED else b.status
-                    BookStore.upsertBook(context, b.copy(currentPage = nextCurrentPage, status = nextStatus))
+                    val isNowCompleted = nextCurrentPage >= b.totalPages && b.totalPages > 0
+                    val nextStatus = if (isNowCompleted) BookStatus.COMPLETED else b.status
+                    val updatedBook = b.copy(currentPage = nextCurrentPage, status = nextStatus)
+                    BookStore.upsertBook(context, updatedBook)
                     logPastBook = null
                     Feedback.success(context)
-                    val unitMsg = if (b.trackMode == BookTrackMode.PERCENTAGE) "${sessionLog.pagesRead}%" else "${sessionLog.pagesRead} pages"
+                    val pctRead = if (b.totalPages > 0) ((sessionLog.pagesRead.toFloat() / b.totalPages) * 100f).roundToInt() else 0
+                    val unitMsg = if (b.trackMode == BookTrackMode.PERCENTAGE) "+$pctRead% (${sessionLog.pagesRead} pages)" else "${sessionLog.pagesRead} pages"
                     Toast.makeText(context, "Logged $unitMsg (${sessionLog.durationMinutes}m)", Toast.LENGTH_SHORT).show()
+                    if (!wasCompleted && isNowCompleted) {
+                        completionFlowState = BookCompletionFlowState.AwaitingStarRating(
+                            book = updatedBook,
+                            initialRating = if (updatedBook.rating in 1..5) updatedBook.rating else 5
+                        )
+                    }
                 }
             )
         }
+
+        // 9-Design Reading Record & Completion Flow Dialog
+        BookCompletionFlowHost(
+            flowState = completionFlowState,
+            onRatingSubmitted = { book, rating ->
+                val updated = book.copy(rating = rating)
+                BookStore.upsertBook(context, updated)
+                val stats = BookStatsCalculator.compute(context, updated, sessions)
+                completionFlowState = BookCompletionFlowState.PromptToShareStats(stats)
+            },
+            onOpenShareStudio = { stats ->
+                completionFlowState = BookCompletionFlowState.SelectingShareStyle(stats)
+            },
+            onStyleSelected = { style ->
+                val curr = completionFlowState
+                if (curr is BookCompletionFlowState.SelectingShareStyle) {
+                    completionFlowState = curr.copy(selectedStyle = style)
+                }
+            },
+            onDismiss = {
+                completionFlowState = BookCompletionFlowState.Idle
+            }
+        )
     }
 }
 
@@ -660,11 +750,177 @@ private fun ContextActionRow(label: String, textColor: Color = Ink.TEXT_WARM, on
 // -----------------------------------------------------------------------------
 
 @Composable
+fun LiquidGlassReadingHeader(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(
+                brush = Brush.verticalGradient(
+                    0.00f to Color(0xF40A0B0F),
+                    0.65f to Color(0xEB0D0F16),
+                    0.88f to Color(0xBF0E1018),
+                    1.00f to Color(0x280E1018)
+                )
+            )
+            .drawBehind {
+                val h = size.height
+                val lipY = h - 2.dp.toPx()
+
+                // 1. Specular top highlight (1px white catchlight)
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color(0x35FFFFFF),
+                            Color(0x60FFFFFF),
+                            Color(0x35FFFFFF),
+                            Color.Transparent
+                        )
+                    ),
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx()
+                )
+
+                // 2. Frosted liquid glass golden amber lip line
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color(0x30FFFFFF),
+                            Color(0x80F5C478),
+                            Color(0xB0D69A4A),
+                            Color(0x80F5C478),
+                            Color(0x30FFFFFF),
+                            Color.Transparent
+                        )
+                    ),
+                    start = Offset(0f, lipY),
+                    end = Offset(size.width, lipY),
+                    strokeWidth = 1.2.dp.toPx()
+                )
+
+                // 3. Ambient soft shadow under the lip
+                drawLine(
+                    color = Color(0x45000000),
+                    start = Offset(0f, lipY + 1.2.dp.toPx()),
+                    end = Offset(size.width, lipY + 1.2.dp.toPx()),
+                    strokeWidth = 2.5.dp.toPx()
+                )
+            }
+            .padding(bottom = 6.dp)
+    ) {
+        content()
+    }
+}
+
+@Composable
+fun BottomLiquidGlassVignette(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(92.dp)
+            .background(
+                brush = Brush.verticalGradient(
+                    0.00f to Color.Transparent,
+                    0.35f to Color(0x8807080B),
+                    0.72f to Color(0xD907080B),
+                    1.00f to Color(0xFA060709)
+                )
+            )
+    )
+}
+
+@Composable
+fun ShelfBookStatusFooter(
+    isCompleted: Boolean,
+    progressFraction: Float,
+    starRating: Int,
+    startedDateLabel: String,
+    modifier: Modifier = Modifier
+) {
+    val isFinished = isCompleted || starRating > 0
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (!isFinished) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 4.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(Color(0xFF262830))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progressFraction.coerceIn(0.04f, 1f))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFFD69A4A), Color(0xFFF5C478))
+                            )
+                        )
+                )
+            }
+            BasicText(
+                text = startedDateLabel,
+                style = TextStyle(
+                    color = Color(0xFF8A909E),
+                    fontSize = 11.sp,
+                    fontFamily = Fonts.sans
+                )
+            )
+        } else {
+            Spacer(modifier = Modifier.height(6.dp))
+            ShelfUnclippedStarRow(rating = starRating.coerceIn(1, 5))
+        }
+    }
+}
+
+@Composable
+fun ShelfUnclippedStarRow(
+    rating: Int,
+    starRadiusDp: androidx.compose.ui.unit.Dp = 6.5.dp,
+    spacingDp: androidx.compose.ui.unit.Dp = 3.5.dp
+) {
+    val totalWidth = (starRadiusDp * 2 * 5) + (spacingDp * 4) + 6.dp
+    val totalHeight = (starRadiusDp * 2) + 4.dp
+    Canvas(modifier = Modifier.size(width = totalWidth, height = totalHeight)) {
+        val r = starRadiusDp.toPx()
+        val gap = spacingDp.toPx()
+        val startCx = r * 1.25f
+        val cy = size.height / 2f
+        for (i in 0 until 5) {
+            val cx = startCx + i * (r * 2f + gap)
+            val path = Path().apply {
+                for (pt in 0 until 10) {
+                    val rad = if (pt % 2 == 0) r else r * 0.42f
+                    val ang = -Math.PI / 2.0 + pt * (Math.PI / 5.0)
+                    val px = cx + (rad * kotlin.math.cos(ang)).toFloat()
+                    val py = cy + (rad * kotlin.math.sin(ang)).toFloat()
+                    if (pt == 0) moveTo(px, py) else lineTo(px, py)
+                }
+                close()
+            }
+            if (i < rating) {
+                drawPath(path, color = Color(0xFFF2B857))
+            } else {
+                drawPath(path, color = Color(0xFF3A3E48), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx()))
+            }
+        }
+    }
+}
+
+@Composable
 private fun ShelfView(
     books: List<BookItem>,
     selectedBook: BookItem?,
     currentSort: FolioSortOrder,
     currentFilter: BookStatus?,
+    scrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
+    topPadding: androidx.compose.ui.unit.Dp = 118.dp,
     onOpenSortMenu: () -> Unit,
     onSelectFilter: (BookStatus?) -> Unit,
     onSelectBook: (BookItem) -> Unit,
@@ -673,8 +929,7 @@ private fun ShelfView(
     onBookLongClick: (BookItem) -> Unit
 ) {
     if (books.isEmpty()) {
-        // Empty Shelf Spec: Drawn bookshelf outline
-        EmptyShelfView(onAddFirstBook)
+        EmptyShelfView(onAddFirstBook, topPadding = topPadding)
         return
     }
 
@@ -683,9 +938,11 @@ private fun ShelfView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = 16.dp)
     ) {
+        Spacer(Modifier.height(topPadding + 6.dp))
+
         // Hero "LAST READ" Card
         if (heroBook != null) {
             BasicText(
@@ -790,7 +1047,8 @@ private fun ShelfView(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        // 148.dp bottom clearance spacer so last row of books clears the floating drawer bar completely
+        Spacer(modifier = Modifier.height(148.dp))
     }
 }
 
@@ -834,10 +1092,12 @@ private fun HeroBookCard(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val isHeroFinished = book.status == BookStatus.COMPLETED || book.rating > 0 || (book.totalPages > 0 && book.currentPage >= book.totalPages)
             // Cover Image 96x144dp, radius 12dp
             CoverImage(
                 book = book,
                 cornerRadius = 12.dp,
+                showProgressBar = !isHeroFinished,
                 modifier = Modifier.size(96.dp, 144.dp)
             )
 
@@ -970,10 +1230,12 @@ private fun ShelfGridItem(
             .clip(RoundedCornerShape(14.dp))
             .clickable { onClick() }
     ) {
+        val isFinishedBook = book.status == BookStatus.COMPLETED || book.rating > 0 || (book.totalPages > 0 && book.currentPage >= book.totalPages)
         // Real Cover Image or Deterministic Fallback
         CoverImage(
             book = book,
             cornerRadius = 12.dp,
+            showProgressBar = !isFinishedBook,
             onClick = onClick,
             onLongClick = onLongClick,
             modifier = Modifier.fillMaxWidth()
@@ -981,55 +1243,47 @@ private fun ShelfGridItem(
 
         Spacer(Modifier.height(6.dp))
 
-        // Bold Title (Bangla-aware system font, max 2 lines, lineHeight 1.35)
-        BasicText(
-            text = book.title,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            style = TextStyle(
-                color = Ink.TEXT_WARM,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Default,
-                lineHeight = 19.sp
-            )
-        )
-
-        Spacer(Modifier.height(2.dp))
-
-        // Rating or Started on date
-        if (book.status == BookStatus.COMPLETED && book.rating > 0) {
-            Row {
-                for (r in 1..5) {
-                    BasicText(
-                        text = "★",
-                        style = TextStyle(
-                            color = if (r <= book.rating) Ink.BRASS else Ink.TEXT_FAINT_V4,
-                            fontSize = 11.sp
-                        )
-                    )
-                }
-            }
-        } else {
+        // Fixed 2-Line Height Title Container — Guarantees Stars Below Align Horizontally!
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(38.dp),
+            contentAlignment = Alignment.TopStart
+        ) {
             BasicText(
-                text = "Started $dateStr",
+                text = book.title,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 style = TextStyle(
-                    color = Ink.TEXT_MUTED_V4,
-                    fontSize = 11.sp,
-                    fontStyle = FontStyle.Italic,
-                    fontFamily = Fonts.sans
+                    color = Ink.TEXT_WARM,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Default,
+                    lineHeight = 17.sp
                 )
             )
         }
+
+        Spacer(Modifier.height(2.dp))
+
+        // Rating or Started on date with progress line
+        val isCompleted = book.status == BookStatus.COMPLETED || book.rating > 0 || (book.totalPages > 0 && book.currentPage >= book.totalPages)
+        ShelfBookStatusFooter(
+            isCompleted = isCompleted,
+            progressFraction = book.progressFraction,
+            starRating = book.rating,
+            startedDateLabel = "Started $dateStr"
+        )
     }
 }
 
 @Composable
-private fun EmptyShelfView(onAdd: () -> Unit) {
+private fun EmptyShelfView(onAdd: () -> Unit, topPadding: androidx.compose.ui.unit.Dp = 118.dp) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(horizontal = 32.dp)
+            .padding(top = topPadding, bottom = 32.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -1097,6 +1351,7 @@ private fun AddBookSheet(
     var status by remember { mutableStateOf(BookStatus.READING) }
     var customCoverPath by remember { mutableStateOf<String?>(null) }
     var showSearchOnlineSheet by remember { mutableStateOf(false) }
+    var showOnlineCoverPicker by remember { mutableStateOf(false) }
 
     var searchState by remember { mutableStateOf(AddBookSearchState.IDLE) }
     var candidates by remember { mutableStateOf<List<BookSearchResult>>(emptyList()) }
@@ -1238,7 +1493,7 @@ private fun AddBookSheet(
             Spacer(Modifier.height(14.dp))
 
             // Title Field
-            BasicText("TITLE (BANGLA OR ENGLISH)", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.sp, fontFamily = Fonts.mono))
+            BasicText("TITLE", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.sp, fontFamily = Fonts.mono))
             Spacer(Modifier.height(4.dp))
             Box(
                 modifier = Modifier
@@ -1306,9 +1561,6 @@ private fun AddBookSheet(
                             .background(if (isSel) Ink.BRASS else Color.Transparent)
                             .clickable {
                                 trackMode = mode
-                                if (mode == BookTrackMode.PERCENTAGE) {
-                                    totalPagesStr = "100"
-                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1334,7 +1586,7 @@ private fun AddBookSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     BasicText(
-                        if (trackMode == BookTrackMode.PERCENTAGE) "TOTAL %" else "TOTAL PAGES",
+                        "TOTAL PAGES",
                         style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.sp, fontFamily = Fonts.mono)
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1349,12 +1601,10 @@ private fun AddBookSheet(
                         BasicTextField(
                             value = totalPagesStr,
                             onValueChange = {
-                                if (trackMode == BookTrackMode.PAGES) {
-                                    totalPagesStr = it
-                                    userModifiedPages = true
-                                }
+                                totalPagesStr = it.filter { c -> c.isDigit() }
+                                userModifiedPages = true
                             },
-                            readOnly = (trackMode == BookTrackMode.PERCENTAGE),
+                            readOnly = false,
                             textStyle = TextStyle(color = Ink.TEXT_WARM, fontSize = 14.sp, fontFamily = Fonts.mono),
                             cursorBrush = SolidColor(Ink.BRASS),
                             modifier = Modifier.fillMaxWidth()
@@ -1592,20 +1842,36 @@ private fun AddBookSheet(
             Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
+                        .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(Ink.SURFACE_3)
                         .border(1.dp, Ink.HAIRLINE_V4, RoundedCornerShape(10.dp))
                         .clickable { pickCoverLauncher.launch("image/*") }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
                 ) {
                     BasicText(
-                        text = if (customCoverPath != null) "✓ CUSTOM GALLERY COVER" else "🖼 CHOOSE COVER FROM DEVICE",
-                        style = TextStyle(color = if (customCoverPath != null) Ink.LED else Ink.BRASS, fontSize = 11.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
+                        text = if (customCoverPath != null) "✓ CUSTOM COVER" else "🖼 FROM DEVICE",
+                        style = TextStyle(color = if (customCoverPath != null) Ink.LED else Ink.BRASS, fontSize = 10.5.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(androidx.compose.ui.graphics.Color(0xFF222733))
+                        .border(1.dp, androidx.compose.ui.graphics.Color(0xFF3B4457), RoundedCornerShape(10.dp))
+                        .clickable { showOnlineCoverPicker = true }
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                ) {
+                    BasicText(
+                        text = "🌐 SEARCH ONLINE",
+                        style = TextStyle(color = androidx.compose.ui.graphics.Color(0xFF8AB4F8), fontSize = 10.5.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
                     )
                 }
 
@@ -1614,9 +1880,9 @@ private fun AddBookSheet(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .clickable { customCoverPath = null }
-                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                            .padding(horizontal = 4.dp, vertical = 4.dp)
                     ) {
-                        BasicText("Reset to online", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 11.sp, fontFamily = Fonts.mono))
+                        BasicText("Reset", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.5.sp, fontFamily = Fonts.mono))
                     }
                 }
             }
@@ -1681,8 +1947,8 @@ private fun AddBookSheet(
                             style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 11.sp, fontFamily = FontFamily.Default)
                         )
                         Spacer(Modifier.height(4.dp))
-                        val pVal = if (trackMode == BookTrackMode.PERCENTAGE) 100 else (totalPagesStr.toIntOrNull() ?: 0)
-                        val pText = if (trackMode == BookTrackMode.PERCENTAGE) "Tracked by % · ${status.name}" else if (pVal > 0) "$pVal pages · ${status.name}" else "Pages not set · ${status.name}"
+                        val pVal = totalPagesStr.toIntOrNull() ?: 0
+                        val pText = if (trackMode == BookTrackMode.PERCENTAGE) "$pVal pages (Tracked by %) · ${status.name}" else if (pVal > 0) "$pVal pages · ${status.name}" else "Pages not set · ${status.name}"
                         BasicText(
                             text = pText,
                             style = TextStyle(color = Ink.BRASS, fontSize = 10.sp, fontFamily = Fonts.mono)
@@ -1707,7 +1973,7 @@ private fun AddBookSheet(
                         .background(if (title.isNotBlank()) Ink.BRASS else Ink.SURFACE_3)
                         .clickable(enabled = title.isNotBlank()) {
                             val bookId = UUID.randomUUID().toString()
-                            val totalP = if (trackMode == BookTrackMode.PERCENTAGE) 100 else (totalPagesStr.toIntOrNull()?.coerceAtLeast(1) ?: 200)
+                            val totalP = totalPagesStr.toIntOrNull()?.coerceAtLeast(1) ?: 200
                             val chosenCand = candidates.getOrNull(selectedCandidateIndex)
                             val coverUrl = chosenCand?.coverUrl
 
@@ -1770,6 +2036,18 @@ private fun AddBookSheet(
                 showSearchOnlineSheet = false
                 Feedback.success(context)
             }
+        )
+    }
+
+    if (showOnlineCoverPicker) {
+        OnlineCoverPickerDialog(
+            initialQuery = "${title.trim()} ${author.trim()}".trim(),
+            bookId = "new_${System.currentTimeMillis()}",
+            onCoverSelected = { localPath, _ ->
+                customCoverPath = localPath
+                showOnlineCoverPicker = false
+            },
+            onDismiss = { showOnlineCoverPicker = false }
         )
     }
 }
@@ -2022,6 +2300,7 @@ private fun BookFocusSheet(
 
     val initialPage = book.currentPage
     var currentPage by remember { mutableIntStateOf(initialPage) }
+    var showJumpDialog by remember { mutableStateOf(false) }
 
     // Screen-off resilient timer loop using elapsedRealtime
     LaunchedEffect(isRunning) {
@@ -2144,7 +2423,12 @@ private fun BookFocusSheet(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Ink.SURFACE_3.copy(alpha = 0.5f))
+                            .clickable { showJumpDialog = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         val isPct = book.trackMode == BookTrackMode.PERCENTAGE
                         BasicText(if (isPct) "CURRENT PROGRESS:" else "CURRENT PAGE:", style = TextStyle(color = Ink.TEXT_WARM, fontSize = 12.sp, fontFamily = Fonts.mono))
@@ -2154,6 +2438,7 @@ private fun BookFocusSheet(
                             litColor = Ink.BRASS,
                             glow = false
                         )
+                        BasicText(" ✎", style = TextStyle(color = Ink.BRASS, fontSize = 12.sp))
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -2295,6 +2580,20 @@ private fun BookFocusSheet(
             Spacer(Modifier.height(10.dp))
         }
     }
+
+    if (showJumpDialog) {
+        NumericPageInputDialog(
+            title = if (book.trackMode == BookTrackMode.PERCENTAGE) "ENTER PROGRESS %" else "ENTER PAGE NUMBER",
+            initialPage = currentPage,
+            maxPage = book.totalPages,
+            isPercentage = book.trackMode == BookTrackMode.PERCENTAGE,
+            onDismiss = { showJumpDialog = false },
+            onConfirm = { targetPage ->
+                currentPage = targetPage
+                Feedback.success(context)
+            }
+        )
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -2319,6 +2618,7 @@ private fun BookEditSheet(
     var status by remember { mutableStateOf(book.status) }
     var categoriesStr by remember { mutableStateOf(book.categories.joinToString(", ")) }
     var customCoverPath by remember { mutableStateOf(book.customCoverPath) }
+    var showOnlineCoverSearch by remember { mutableStateOf(false) }
 
     // Device gallery image picker
     val pickCoverLauncher = rememberLauncherForActivityResult(
@@ -2388,18 +2688,36 @@ private fun BookEditSheet(
                 )
 
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Ink.SURFACE_3)
-                            .border(1.dp, Ink.HAIRLINE_V4, RoundedCornerShape(10.dp))
-                            .clickable { pickCoverLauncher.launch("image/*") }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        BasicText(
-                            text = if (customCoverPath != null) "REPLACE COVER IMAGE" else "CHOOSE COVER FROM DEVICE",
-                            style = TextStyle(color = Ink.BRASS, fontSize = 11.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Ink.SURFACE_3)
+                                .border(1.dp, Ink.HAIRLINE_V4, RoundedCornerShape(10.dp))
+                                .clickable { pickCoverLauncher.launch("image/*") }
+                                .padding(horizontal = 8.dp, vertical = 8.dp)
+                        ) {
+                            BasicText(
+                                text = "🖼 FROM DEVICE",
+                                style = TextStyle(color = Ink.BRASS, fontSize = 10.5.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(androidx.compose.ui.graphics.Color(0xFF222733))
+                                .border(1.dp, androidx.compose.ui.graphics.Color(0xFF3B4457), RoundedCornerShape(10.dp))
+                                .clickable { showOnlineCoverSearch = true }
+                                .padding(horizontal = 8.dp, vertical = 8.dp)
+                        ) {
+                            BasicText(
+                                text = "🌐 SEARCH ONLINE",
+                                style = TextStyle(color = androidx.compose.ui.graphics.Color(0xFF8AB4F8), fontSize = 10.5.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
+                            )
+                        }
                     }
 
                     if (customCoverPath != null) {
@@ -2487,15 +2805,6 @@ private fun BookEditSheet(
                             .clickable {
                                 if (trackMode != mode) {
                                     trackMode = mode
-                                    if (mode == BookTrackMode.PERCENTAGE) {
-                                        val curP = currentPageStr.toIntOrNull() ?: book.currentPage
-                                        val totP = totalPagesStr.toIntOrNull()?.coerceAtLeast(1) ?: book.totalPages
-                                        val curPct = ((curP.toDouble() / totP.toDouble()) * 100.0).roundToInt().coerceIn(0, 100)
-                                        currentPageStr = curPct.toString()
-                                        totalPagesStr = "100"
-                                    } else {
-                                        totalPagesStr = if (book.totalPages > 100) book.totalPages.toString() else "300"
-                                    }
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -2521,8 +2830,7 @@ private fun BookEditSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    val isPct = trackMode == BookTrackMode.PERCENTAGE
-                    BasicText(if (isPct) "CURRENT %" else "CURRENT PAGE", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.sp, fontFamily = Fonts.mono))
+                    BasicText("CURRENT PAGE", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.sp, fontFamily = Fonts.mono))
                     Spacer(Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
@@ -2542,8 +2850,7 @@ private fun BookEditSheet(
                     }
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    val isPct = trackMode == BookTrackMode.PERCENTAGE
-                    BasicText(if (isPct) "TOTAL %" else "TOTAL PAGES", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.sp, fontFamily = Fonts.mono))
+                    BasicText("TOTAL PAGES", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.sp, fontFamily = Fonts.mono))
                     Spacer(Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
@@ -2555,12 +2862,8 @@ private fun BookEditSheet(
                     ) {
                         BasicTextField(
                             value = totalPagesStr,
-                            onValueChange = {
-                                if (!isPct) {
-                                    totalPagesStr = it.filter { ch -> ch.isDigit() }
-                                }
-                            },
-                            readOnly = isPct,
+                            onValueChange = { totalPagesStr = it.filter { ch -> ch.isDigit() } },
+                            readOnly = false,
                             textStyle = TextStyle(color = Ink.TEXT_WARM, fontSize = 14.sp, fontFamily = Fonts.mono),
                             cursorBrush = SolidColor(Ink.BRASS),
                             modifier = Modifier.fillMaxWidth()
@@ -2703,6 +3006,18 @@ private fun BookEditSheet(
             }
         }
     }
+
+    if (showOnlineCoverSearch) {
+        OnlineCoverPickerDialog(
+            initialQuery = "${title.trim()} ${author.trim()}".trim(),
+            bookId = book.id,
+            onCoverSelected = { localPath, _ ->
+                customCoverPath = localPath
+                showOnlineCoverSearch = false
+            },
+            onDismiss = { showOnlineCoverSearch = false }
+        )
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -2716,14 +3031,43 @@ private fun LogPastSessionSheet(
     onSave: (ReadingSessionLog) -> Unit
 ) {
     val context = LocalContext.current
-    var startPageStr by remember { mutableStateOf(book.currentPage.toString()) }
-    var endPageStr by remember { mutableStateOf(((book.currentPage + 20).coerceAtMost(book.totalPages)).toString()) }
+    val isPct = book.trackMode == BookTrackMode.PERCENTAGE
+    val initialStartVal = if (isPct) {
+        if (book.totalPages > 0) ((book.currentPage.toFloat() / book.totalPages) * 100f).roundToInt().coerceIn(0, 100) else 0
+    } else {
+        book.currentPage
+    }
+    val initialEndVal = if (isPct) {
+        (initialStartVal + 5).coerceAtMost(100)
+    } else {
+        (book.currentPage + 20).coerceAtMost(book.totalPages)
+    }
+    var startPageStr by remember { mutableStateOf(initialStartVal.toString()) }
+    var endPageStr by remember { mutableStateOf(initialEndVal.toString()) }
     var durationMinutesStr by remember { mutableStateOf("30") }
-    var daysAgo by remember { mutableIntStateOf(0) }
+    var selectedTimestampMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var selectedQuickChip by remember { mutableIntStateOf(0) }
 
-    val startP = startPageStr.toIntOrNull() ?: book.currentPage
-    val endP = endPageStr.toIntOrNull() ?: startP
-    val pagesRead = (endP - startP).coerceAtLeast(0)
+    val startNum = startPageStr.toIntOrNull() ?: initialStartVal
+    val endNum = endPageStr.toIntOrNull() ?: startNum
+
+    val startPage: Int
+    val endPage: Int
+    val pagesRead: Int
+    val pctDelta: Int
+    if (isPct) {
+        val sPct = startNum.coerceIn(0, 100)
+        val ePct = endNum.coerceIn(sPct, 100)
+        startPage = if (book.totalPages > 0) (sPct / 100f * book.totalPages).roundToInt().coerceIn(0, book.totalPages) else sPct
+        endPage = if (book.totalPages > 0) (ePct / 100f * book.totalPages).roundToInt().coerceIn(0, book.totalPages) else ePct
+        pagesRead = (endPage - startPage).coerceAtLeast(0)
+        pctDelta = (ePct - sPct).coerceAtLeast(0)
+    } else {
+        startPage = startNum.coerceIn(0, book.totalPages)
+        endPage = endNum.coerceIn(startPage, book.totalPages)
+        pagesRead = (endPage - startPage).coerceAtLeast(0)
+        pctDelta = if (book.totalPages > 0) ((pagesRead.toFloat() / book.totalPages) * 100f).roundToInt() else 0
+    }
     val durationMin = durationMinutesStr.toIntOrNull()?.coerceAtLeast(1) ?: 30
 
     NdotSheet(onDismiss = onDismiss) {
@@ -2746,21 +3090,48 @@ private fun LogPastSessionSheet(
 
             Spacer(Modifier.height(14.dp))
 
-            // Day Selector Chips
+            // Day Selector Chips (Part 5.1 Historical Date Picker)
             BasicText("WHEN DID YOU READ?", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 10.sp, fontFamily = Fonts.mono))
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(0 to "Today", 1 to "Yesterday", 2 to "2 days ago", 3 to "3 days ago").forEach { (d, label) ->
-                    val isSel = daysAgo == d
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val chips = listOf("Today", "Yesterday", "2 days ago", "3 days ago", "Pick Date 📅")
+                chips.forEachIndexed { idx, label ->
+                    val isSel = (selectedQuickChip == idx)
+                    val chipText = if (idx == 4 && selectedQuickChip == 4) {
+                        SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date(selectedTimestampMs))
+                    } else label
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (isSel) Ink.BRASS else Ink.SURFACE_3)
-                            .clickable { daysAgo = d }
+                            .clickable {
+                                if (idx < 4) {
+                                    selectedQuickChip = idx
+                                    selectedTimestampMs = System.currentTimeMillis() - idx * 86_400_000L
+                                } else {
+                                    val cal = java.util.Calendar.getInstance().apply { timeInMillis = selectedTimestampMs }
+                                    android.app.DatePickerDialog(
+                                        context,
+                                        { _, year, month, dayOfMonth ->
+                                            cal.set(year, month, dayOfMonth, 12, 0, 0)
+                                            selectedTimestampMs = cal.timeInMillis
+                                            selectedQuickChip = 4
+                                        },
+                                        cal.get(java.util.Calendar.YEAR),
+                                        cal.get(java.util.Calendar.MONTH),
+                                        cal.get(java.util.Calendar.DAY_OF_MONTH)
+                                    ).apply {
+                                        datePicker.maxDate = System.currentTimeMillis()
+                                    }.show()
+                                }
+                            }
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         BasicText(
-                            text = label,
+                            text = chipText,
                             style = TextStyle(
                                 color = if (isSel) Ink.GROUND else Ink.TEXT_MUTED_V4,
                                 fontSize = 11.sp,
@@ -2859,15 +3230,15 @@ private fun LogPastSessionSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val readText = if (isPct) "$pagesRead% progress" else "$pagesRead pages read"
+                    val readText = if (isPct) "+$pctDelta% progress ($pagesRead pages read)" else "$pagesRead pages read"
                     BasicText(
                         text = readText,
                         style = TextStyle(color = Ink.TEXT_WARM, fontSize = 12.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
                     )
-                    val pace = if (pagesRead > 0) (durationMin.toFloat() / pagesRead) else 0f
-                    val paceUnit = if (isPct) "min / 1%" else "min/page"
+                    val speed = if (durationMin > 0) ((pagesRead.toFloat() / durationMin) * 60f).roundToInt() else 0
+                    val speedText = "$speed pgs/hr"
                     BasicText(
-                        text = if (pace > 0f) String.format(Locale.US, "%.1f %s", pace, paceUnit) else "—",
+                        text = speedText,
                         style = TextStyle(color = Ink.BRASS, fontSize = 12.sp, fontFamily = Fonts.mono)
                     )
                 }
@@ -2888,13 +3259,13 @@ private fun LogPastSessionSheet(
                         .clip(RoundedCornerShape(12.dp))
                         .background(Ink.BRASS)
                         .clickable {
-                            val epoch = System.currentTimeMillis() - (daysAgo * 86400000L)
+                            val epoch = if (selectedQuickChip == 4) selectedTimestampMs else (System.currentTimeMillis() - (selectedQuickChip * 86400000L))
                             val log = ReadingSessionLog(
                                 id = UUID.randomUUID().toString(),
                                 bookId = book.id,
                                 timestampMillis = epoch,
-                                startPage = startP,
-                                endPage = endP,
+                                startPage = startPage,
+                                endPage = endPage,
                                 pagesRead = pagesRead,
                                 durationMinutes = durationMin,
                                 durationSeconds = durationMin * 60L,
@@ -2922,11 +3293,16 @@ private fun BookActionSheet(
     onDismiss: () -> Unit,
     onStartFocus: () -> Unit,
     onOpenCaliper: () -> Unit,
+    onOpenStatsStudio: () -> Unit,
     onEdit: () -> Unit,
     onLogPast: () -> Unit,
     onToggleStatus: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
+    var currentBook by remember(book) { mutableStateOf(book) }
+    var showJumpDialog by remember { mutableStateOf(false) }
+
     NdotSheet(onDismiss = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -2935,33 +3311,44 @@ private fun BookActionSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 CoverImage(
-                    book = book,
+                    book = currentBook,
                     cornerRadius = 8.dp,
                     modifier = Modifier.size(48.dp, 72.dp)
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     BasicText(
-                        text = book.title,
+                        text = currentBook.title,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         style = TextStyle(color = Ink.TEXT_WARM, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Default)
                     )
                     Spacer(Modifier.height(2.dp))
                     BasicText(
-                        text = "By ${book.author}",
+                        text = "By ${currentBook.author}",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 12.sp, fontFamily = FontFamily.Default)
                     )
                     Spacer(Modifier.height(4.dp))
-                    val pct = if (book.totalPages > 0) (book.currentPage * 100 / book.totalPages) else 0
-                    val progressText = if (book.trackMode == BookTrackMode.PERCENTAGE) "$pct%" else "${book.currentPage} / ${book.totalPages} · $pct%"
-                    DotMatrixText(
-                        text = progressText,
-                        dotPitch = 1.8.dp,
-                        litColor = Ink.LED,
-                        glow = false
-                    )
+                    val pct = if (currentBook.totalPages > 0) (currentBook.currentPage * 100 / currentBook.totalPages) else 0
+                    val progressText = if (currentBook.trackMode == BookTrackMode.PERCENTAGE) "$pct%" else "${currentBook.currentPage} / ${currentBook.totalPages} · $pct%"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Ink.SURFACE_3.copy(alpha = 0.6f))
+                            .clickable { showJumpDialog = true }
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                    ) {
+                        DotMatrixText(
+                            text = progressText,
+                            dotPitch = 1.8.dp,
+                            litColor = Ink.LED,
+                            glow = false
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        BasicText("✎", style = TextStyle(color = Ink.BRASS, fontSize = 11.sp))
+                    }
                 }
             }
 
@@ -2985,11 +3372,141 @@ private fun BookActionSheet(
 
             Spacer(Modifier.height(8.dp))
 
+            ContextActionRow("Jump to page / Update progress") { showJumpDialog = true }
             ContextActionRow("Open in Counter") { onOpenCaliper() }
+            ContextActionRow("Share Book Report") { onOpenStatsStudio() }
             ContextActionRow("Edit book details & cover") { onEdit() }
             ContextActionRow("Log past reading session") { onLogPast() }
-            ContextActionRow(if (book.status == BookStatus.COMPLETED) "Mark as in-progress" else "Mark as completed") { onToggleStatus() }
+            ContextActionRow(if (currentBook.status == BookStatus.COMPLETED) "Mark as in-progress" else "Mark as completed") { onToggleStatus() }
             ContextActionRow("Delete book from shelf", textColor = Ink.VERMILION) { onDelete() }
+        }
+    }
+
+    if (showJumpDialog) {
+        NumericPageInputDialog(
+            title = if (currentBook.trackMode == BookTrackMode.PERCENTAGE) "JUMP TO PERCENTAGE" else "JUMP TO PAGE",
+            initialPage = currentBook.currentPage,
+            maxPage = currentBook.totalPages,
+            isPercentage = currentBook.trackMode == BookTrackMode.PERCENTAGE,
+            onDismiss = { showJumpDialog = false },
+            onConfirm = { targetPage ->
+                val isComplete = (currentBook.totalPages > 0 && targetPage >= currentBook.totalPages) ||
+                        (currentBook.trackMode == BookTrackMode.PERCENTAGE && targetPage >= 100)
+                val newStatus = if (isComplete) BookStatus.COMPLETED else BookStatus.READING
+                val updated = currentBook.copy(
+                    currentPage = targetPage,
+                    status = newStatus
+                )
+                currentBook = updated
+                BookStore.upsertBook(context, updated)
+                Feedback.success(context)
+            }
+        )
+    }
+}
+
+@Composable
+private fun NumericPageInputDialog(
+    title: String,
+    initialPage: Int,
+    maxPage: Int,
+    isPercentage: Boolean = false,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    var textVal by remember { mutableStateOf(initialPage.toString()) }
+    val maxLimit = if (isPercentage) 100 else (if (maxPage > 0) maxPage else 99999)
+
+    NdotSheet(onDismiss = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicText(
+                    text = title,
+                    style = TextStyle(color = Ink.BRASS, fontSize = 12.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Ink.SURFACE_3)
+                        .clickable { onDismiss() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicText("×", style = TextStyle(color = Ink.TEXT_WARM, fontSize = 18.sp))
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Ink.SURFACE_3)
+                    .border(1.dp, Ink.HAIRLINE_V4, RoundedCornerShape(12.dp))
+                    .padding(14.dp)
+            ) {
+                BasicTextField(
+                    value = textVal,
+                    onValueChange = { newVal ->
+                        textVal = newVal.filter { it.isDigit() }.take(5)
+                    },
+                    textStyle = TextStyle(color = Ink.TEXT_WARM, fontSize = 20.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold),
+                    cursorBrush = SolidColor(Ink.BRASS),
+                    decorationBox = { inner ->
+                        if (textVal.isEmpty()) {
+                            BasicText(if (isPercentage) "0-100%" else "0-${maxLimit}", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 18.sp))
+                        }
+                        inner()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Ink.SURFACE_2)
+                        .clickable { onDismiss() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicText("CANCEL", style = TextStyle(color = Ink.TEXT_MUTED_V4, fontSize = 12.sp, fontFamily = Fonts.mono))
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Ink.BRASS)
+                        .clickable {
+                            val parsed = textVal.toIntOrNull() ?: initialPage
+                            val clamped = parsed.coerceIn(0, maxLimit)
+                            onConfirm(clamped)
+                            onDismiss()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicText("SAVE", style = TextStyle(color = Ink.GROUND, fontSize = 12.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold))
+                }
+            }
         }
     }
 }

@@ -35,7 +35,7 @@ Ndot rejects the noisy, hyperactive visual conventions of modern mobile software
 | **SDK Targets** | `compileSdk = 36`, `targetSdk = 35`, `minSdk = 26` |
 | **Dependencies** | Jetpack Compose Foundation, UI, Runtime; Core-KTX; Activity-Compose; Coil (Covers); Coroutines |
 | **Verification & Tests** | Unit tests: `./gradlew testDebugUnitTest` (`ScoreEngineTest.kt` passes with 100% vector accuracy)<br>Typecheck: `python tools/typecheck.py` (0 errors) |
-| **Build Artifacts** | `app/build/outputs/apk/debug/app-debug.apk` (~16.4 MB)<br>Copies deployed to `C:\Users\The System Admin\Downloads\Ndot-v5.apk` and `ndot-v5-debug.apk` |
+| **Build Artifacts** | `app/build/outputs/apk/debug/app-debug.apk` (~16.4 MB)<br>Copies deployed to `~/Downloads/Ndot-v5.apk` and `ndot-v5-debug.apk` |
 | **Key In-Tree Packages** | `rocks.ndot.widgets.kit` (Foundations, Theme, Audio, Components)<br>`rocks.ndot.widgets.app` (Navigation, Home, Drawer, Settings)<br>`rocks.ndot.widgets.instruments.*` (All 9 instruments)<br>`rocks.ndot.widgets.widgets` (Launcher App Widgets) |
 
 ---
@@ -422,7 +422,7 @@ NdotWidgets/
 ### 6. Build & Delivery
 - Verified `./gradlew testDebugUnitTest`: **BUILD SUCCESSFUL**.
 - Verified `./gradlew assembleDebug`: **BUILD SUCCESSFUL**.
-- Generated APK copied to `C:\Users\The System Admin\Downloads\Ndot-v5.apk` and `ndot-v5-debug.apk`.
+- Generated APK copied to `~/Downloads/Ndot-v5.apk` and `ndot-v5-debug.apk`.
 
 ---
 

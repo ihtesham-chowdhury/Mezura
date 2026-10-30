@@ -149,6 +149,22 @@ fun BreathingScreen() {
         mutableStateOf(loadRecentSessionDays(context))
     }
 
+    // Sequence Step Duration and Auto-Initiation
+    LaunchedEffect(Unit) {
+        val run = rocks.ndot.widgets.instruments.sequence.SequenceEngine.getActiveRun(context)
+        if (run != null && (run.state == rocks.ndot.widgets.instruments.sequence.SequenceState.RUNNING_STEP || run.state == rocks.ndot.widgets.instruments.sequence.SequenceState.IDLE) && run.currentStep?.tool == rocks.ndot.widgets.app.Tool.BREATHING) {
+            val step = run.currentStep!!
+            val stepSeconds = step.durationMinutes * 60L
+            engine.setDuration(stepSeconds)
+            if (engine.state == BreathingEngine.State.IDLE) {
+                engine.start(context)
+            }
+            engineState = engine.state
+            sessionRemainingMs = engine.sessionRemainingMs
+            completedCycles = engine.completedCycles
+        }
+    }
+
     KeepAwake(engineState == BreathingEngine.State.RUNNING)
 
     // Smooth Frame Loop for breathing engine & animation
@@ -256,11 +272,15 @@ fun BreathingScreen() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DotMatrixText(
+                BasicText(
                     text = "AUTONOMIC PACER",
-                    dotPitch = 2.2.dp,
-                    litColor = Ink.TEXT_WARM,
-                    glow = false
+                    style = TextStyle(
+                        color = Color(0xFFF2F6FA),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = Fonts.sans,
+                        letterSpacing = 1.6.sp
+                    )
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -307,29 +327,31 @@ fun BreathingScreen() {
             ) {
                 BreathingProtocols.ALL.forEach { proto ->
                     val isSelected = currentProtocol.id == proto.id
-                    val glyph = when (proto.id) {
-                        BreathingProtocols.CYCLIC_SIGH.id -> "〰"
-                        BreathingProtocols.COHERENT.id -> "∿"
-                        BreathingProtocols.BOX.id -> "▢"
-                        else -> "◷"
+                    val label = when (proto.id) {
+                        BreathingProtocols.CYCLIC_SIGH.id -> "CYCLIC"
+                        BreathingProtocols.COHERENT.id -> "COHERE"
+                        BreathingProtocols.BOX.id -> "BOX 4·4"
+                        BreathingProtocols.RELAX_478.id -> "4-7-8"
+                        else -> proto.name.uppercase()
                     }
 
-                    Box(
+                    Row(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (isSelected) Ink.BREATH_IN else Ink.SURFACE_2)
-                            .border(1.dp, if (isSelected) Ink.BREATH_IN else Ink.HAIRLINE_V4, RoundedCornerShape(999.dp))
-                            .clickable {
-                                if (currentProtocol.id != proto.id) {
-                                    currentProtocol = proto
-                                    engine.switchProtocol(proto)
-                                    engineState = engine.state
-                                    sessionRemainingMs = engine.sessionRemainingMs
-                                    countdownValue = 0
-                                    Feedback.tick(context)
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(19.dp))
+                            .background(
+                                if (isSelected) {
+                                    Brush.horizontalGradient(listOf(Color(0xFF5AD2EA), Color(0xFF7CE8FC)))
+                                } else {
+                                    Brush.horizontalGradient(listOf(Color(0xFF121820), Color(0xFF161E28)))
                                 }
-                            }
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) Color(0xAAFFFFFF) else Color(0xFF263240),
+                                shape = RoundedCornerShape(19.dp)
+                            )
                             .pointerInput(proto.id) {
                                 detectTapGestures(
                                     onLongPress = {
@@ -337,26 +359,40 @@ fun BreathingScreen() {
                                         Feedback.lock(context)
                                     },
                                     onTap = {
-                                        currentProtocol = proto
-                                        engine.switchProtocol(proto)
-                                        engineState = engine.state
-                                        sessionRemainingMs = engine.sessionRemainingMs
-                                        countdownValue = 0
-                                        Feedback.tick(context)
+                                        if (currentProtocol.id != proto.id) {
+                                            currentProtocol = proto
+                                            engine.switchProtocol(proto)
+                                            engineState = engine.state
+                                            sessionRemainingMs = engine.sessionRemainingMs
+                                            countdownValue = 0
+                                            Feedback.tick(context)
+                                        }
                                     }
                                 )
                             }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
+                        // Precision Hardware Status Pip (replaces awkward unicode squiggles/boxes)
+                        Box(
+                            modifier = Modifier
+                                .size(5.5.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isSelected) Color(0xFF081820) else Color(0xFF4A6075)
+                                )
+                        )
+                        Spacer(Modifier.width(5.dp))
                         BasicText(
-                            text = "$glyph ${proto.name.take(6)}",
+                            text = label,
                             maxLines = 1,
                             style = TextStyle(
-                                color = if (isSelected) Ink.GROUND else Ink.TEXT_MUTED_V4,
-                                fontSize = 10.sp,
-                                fontFamily = Fonts.mono,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                color = if (isSelected) Color(0xFF06131A) else Color(0xFFB8C7D6),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = Fonts.sans,
+                                letterSpacing = 0.4.sp
                             )
                         )
                     }

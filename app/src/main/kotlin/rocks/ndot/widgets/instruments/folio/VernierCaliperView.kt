@@ -3,6 +3,8 @@ package rocks.ndot.widgets.instruments.folio
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -149,14 +151,25 @@ fun CounterView(
 
     // Direct page jump sheet
     var showJumpSheet by remember { mutableStateOf(false) }
-    var jumpInput by remember(draftPage) { mutableStateOf("$draftPage") }
+    var jumpInput by remember(draftPage, book.trackMode) {
+        mutableStateOf(
+            if (book.trackMode == BookTrackMode.PERCENTAGE && book.totalPages > 0) {
+                "${((draftPage.toFloat() / book.totalPages) * 100f).roundToInt().coerceIn(0, 100)}"
+            } else {
+                "$draftPage"
+            }
+        )
+    }
 
     // Precompute the 120 outer gear teeth path once
     val gearTeethPath = remember { buildGearTeethPath(WHEEL_CX, WHEEL_CY) }
 
-    // Debounced commit to BookStore
+    // Commit to BookStore (debounced for scrolling, immediate upon completion)
     LaunchedEffect(draftPage) {
-        delay(350L)
+        val isComplete = book.totalPages > 0 && draftPage >= book.totalPages
+        if (!isComplete) {
+            delay(350L)
+        }
         if (draftPage != lastCommitPage) {
             lastCommitPage = draftPage
             onSaveProgress(draftPage)
@@ -188,14 +201,16 @@ fun CounterView(
         modifier = modifier
             .fillMaxSize()
             .background(Ink.GROUND)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 12.dp)
+            .padding(top = 8.dp, bottom = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
         // 1. Top Header: The Counter, book title and author
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 6.dp),
+                .padding(bottom = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             BasicText(
@@ -221,23 +236,55 @@ fun CounterView(
             )
         }
 
-        // 2. Mechanical Chassis Card (viewBox 380 x 430)
-        BoxWithConstraints(
+        // 2. Mechanical Chassis Card (viewBox 380 x 430, aspect-fitted & centered)
+        Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
-                .aspectRatio(VB_W / VB_H, matchHeightConstraintsFirst = true)
-                .clip(RoundedCornerShape(26.dp))
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .aspectRatio(VB_W / VB_H, matchHeightConstraintsFirst = true)
+                    .clip(RoundedCornerShape(26.dp))
+            ) {
             val plateW = constraints.maxWidth.toFloat()
             val plateH = constraints.maxHeight.toFloat()
-            val scale = min(plateW / VB_W, plateH / VB_H)
-            val offsetX = (plateW - VB_W * scale) / 2f
-            val offsetY = (plateH - VB_H * scale) / 2f
+            val scale = minOf(plateW / 406f, plateH / 475f)
+            val offsetX = (plateW - 380f * scale) / 2f
+            val offsetY = (plateH - 430f * scale) / 2f
 
-            // Wheel rotation physics (persisted permanently across recompositions!)
-            var wheelAngle by remember { mutableFloatStateOf(0f) }
-            var lastWheelTouchAngle by remember { mutableFloatStateOf(0f) }
+            // Wheel rotation physics (Single-Source-of-Truth Wheel Angle)
+            var isDraggingWheelDirectly by remember { mutableStateOf(false) }
+            var unwrappedWheelAngleDeg by remember { mutableFloatStateOf(0f) }
+            var lastSyncedPage by remember { mutableIntStateOf(draftPage) }
+
+            // ONLY drive the wheel via draftPage when user is NOT touching the rotary wheel
+            LaunchedEffect(draftPage) {
+                if (!isDraggingWheelDirectly) {
+                    val pageDelta = draftPage - lastSyncedPage
+                    if (pageDelta != 0) {
+                        val dir = if (pageDelta > 0) 1f else -1f
+                        val stepDeg = (abs(pageDelta) * 14f).coerceIn(14f, 42f)
+                        unwrappedWheelAngleDeg += dir * stepDeg
+                    }
+                }
+                lastSyncedPage = draftPage
+            }
+
+            // 0ms immediate tracking while finger is rotating; smooth spring only for fader/+1!
+            val renderedWheelAngleDeg by animateFloatAsState(
+                targetValue = unwrappedWheelAngleDeg,
+                animationSpec = if (isDraggingWheelDirectly) {
+                    snap()
+                } else {
+                    spring(dampingRatio = 0.82f, stiffness = 680f)
+                },
+                label = "wheelRotation"
+            )
+
+            var prevRawFingerDeg by remember { mutableFloatStateOf(0f) }
             var wheelAngleAccum by remember { mutableFloatStateOf(0f) }
             var lastMoveTime by remember { mutableLongStateOf(0L) }
 
@@ -264,7 +311,13 @@ fun CounterView(
 
                             // 1. Split flap bay tap (x: 34..240, y: 28..144) -> open jump sheet
                             if (vx in 34f..240f && vy in 28f..144f) {
-                                jumpInput = "$draftPage"
+                                val isPct = book.trackMode == BookTrackMode.PERCENTAGE
+                                jumpInput = if (isPct) {
+                                    val pct = if (book.totalPages > 0) ((draftPage.toFloat() / book.totalPages) * 100f).roundToInt().coerceIn(0, 100) else 0
+                                    "$pct"
+                                } else {
+                                    "$draftPage"
+                                }
                                 showJumpSheet = true
                                 triggerFeedback("tick")
                                 return@detectTapGestures
@@ -290,7 +343,7 @@ fun CounterView(
                             if (hypot(vx - leverTipX, vy - leverTipY) <= 28f || (vx in 230f..300f && vy in 320f..380f)) {
                                 if (draftPage < currentTotalP) {
                                     draftPage++
-                                    wheelAngle += DETENT_DEGREES
+                                    unwrappedWheelAngleDeg += 18f
                                     triggerFeedback("flap")
                                 }
                                 coroutineScope.launch {
@@ -319,7 +372,10 @@ fun CounterView(
                                 // WHEEL: rotary gesture on the center wheel assembly
                                 if (hypot(vx - WHEEL_CX, vy - WHEEL_CY) <= WHEEL_R) {
                                     activeDragMode = 2
-                                    lastWheelTouchAngle = atan2(vy - WHEEL_CY, vx - WHEEL_CX) * (180f / PI.toFloat())
+                                    isDraggingWheelDirectly = true
+                                    val dx = vx - WHEEL_CX
+                                    val dy = vy - WHEEL_CY
+                                    prevRawFingerDeg = (atan2(dy.toDouble(), dx.toDouble()) * 180.0 / Math.PI).toFloat()
                                     lastMoveTime = System.currentTimeMillis()
                                     return@detectDragGestures
                                 }
@@ -338,58 +394,47 @@ fun CounterView(
                                         val ratio = (FADER_BOT_Y - clampedY) / FADER_SPAN
                                         val targetP = (ratio * currentTotalP).roundToInt().coerceIn(0, currentTotalP)
                                         if (targetP != draftPage) {
-                                            val pageDelta = targetP - draftPage
-                                            wheelAngle += pageDelta * DETENT_DEGREES
                                             draftPage = targetP
                                             triggerFeedback("flap")
                                         }
                                     }
                                     2 -> {
-                                        // WHEEL rotary pan with iPod-style velocity curve
+                                        // Single-Source-of-Truth Wheel Drag with wrap and clamp
                                         change.consume()
-                                        val currentTouchAngle = atan2(vy - WHEEL_CY, vx - WHEEL_CX) * (180f / PI.toFloat())
-                                        var delta = currentTouchAngle - lastWheelTouchAngle
-                                        while (delta > 180f) delta -= 360f
-                                        while (delta < -180f) delta += 360f
+                                        val dx = vx - WHEEL_CX
+                                        val dy = vy - WHEEL_CY
+                                        if (hypot(dx, dy) >= 18f) {
+                                            val rawDeg = (atan2(dy.toDouble(), dx.toDouble()) * 180.0 / Math.PI).toFloat()
+                                            var deltaDeg = rawDeg - prevRawFingerDeg
+                                            while (deltaDeg > 180f) deltaDeg -= 360f
+                                            while (deltaDeg < -180f) deltaDeg += 360f
+                                            val safeDelta = deltaDeg.coerceIn(-60f, 60f)
+                                            unwrappedWheelAngleDeg += safeDelta
+                                            prevRawFingerDeg = rawDeg
 
-                                        // Ignore impossible jumps if finger crosses center pixel
-                                        if (abs(delta) > 85f) {
-                                            lastWheelTouchAngle = currentTouchAngle
-                                            return@detectDragGestures
-                                        }
-
-                                        val now = System.currentTimeMillis()
-                                        val dt = max(1L, now - lastMoveTime)
-                                        val angularVelocity = abs(delta) / dt.toFloat() // deg/ms
-                                        val velocityMultiplier = if (angularVelocity > 0.28f) {
-                                            1f + ((angularVelocity - 0.28f) * 3.5f).pow(1.45f)
-                                        } else 1f
-
-                                        // Angle is persisted permanently - NEVER snaps back!
-                                        wheelAngle += delta
-                                        wheelAngleAccum += delta * velocityMultiplier
-
-                                        if (abs(wheelAngleAccum) >= DETENT_DEGREES) {
-                                            val steps = (wheelAngleAccum / DETENT_DEGREES).toInt()
-                                            val newP = (draftPage + steps).coerceIn(0, currentTotalP)
-                                            if (newP != draftPage) {
-                                                draftPage = newP
-                                                triggerFeedback("tick")
+                                            // Accumulate page steps smoothly (18 degrees per page detent)
+                                            wheelAngleAccum += safeDelta
+                                            val pageSteps = (wheelAngleAccum / 18f).toInt()
+                                            if (pageSteps != 0) {
+                                                wheelAngleAccum -= pageSteps * 18f
+                                                val newP = (draftPage + pageSteps).coerceIn(0, currentTotalP)
+                                                if (newP != draftPage) {
+                                                    draftPage = newP
+                                                    lastSyncedPage = newP
+                                                    triggerFeedback("tick")
+                                                }
                                             }
-                                            wheelAngleAccum -= steps * DETENT_DEGREES
                                         }
-
-                                        lastWheelTouchAngle = currentTouchAngle
-                                        lastMoveTime = now
                                     }
                                 }
                             },
                             onDragEnd = {
                                 activeDragMode = 0
-                                // wheelAngle is PRESERVED, never reset!
+                                isDraggingWheelDirectly = false
                             },
                             onDragCancel = {
                                 activeDragMode = 0
+                                isDraggingWheelDirectly = false
                             }
                         )
                     }
@@ -415,7 +460,7 @@ fun CounterView(
 
                         // 4. Center Rotary Jog Wheel & +1 Spring Lever
                         drawJogWheelExact(
-                            wheelAngle = wheelAngle,
+                            wheelAngle = renderedWheelAngleDeg,
                             leverDeflection = leverAnim.value,
                             gearPath = gearTeethPath
                         )
@@ -433,6 +478,7 @@ fun CounterView(
                     }
                 }
             }
+        }
         }
 
         Spacer(Modifier.height(10.dp))
@@ -565,7 +611,12 @@ fun CounterView(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Ink.AMBER)
                                 .clickable {
-                                    val target = jumpInput.toIntOrNull()?.coerceIn(0, book.totalPages) ?: draftPage
+                                    val target = if (isPct) {
+                                        val targetPct = jumpInput.toIntOrNull()?.coerceIn(0, 100) ?: 0
+                                        if (book.totalPages > 0) (targetPct / 100f * book.totalPages).roundToInt().coerceIn(0, book.totalPages) else draftPage
+                                    } else {
+                                        jumpInput.toIntOrNull()?.coerceIn(0, book.totalPages) ?: draftPage
+                                    }
                                     draftPage = target
                                     Feedback.lock(context)
                                     showJumpSheet = false
@@ -582,7 +633,8 @@ fun CounterView(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(-10, -1, 1, 10).forEach { delta ->
+                        val deltas = if (isPct) listOf(-10, -5, 5, 10) else listOf(-10, -1, 1, 10)
+                        deltas.forEach { delta ->
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -590,15 +642,17 @@ fun CounterView(
                                     .background(Ink.SURFACE_2)
                                     .border(1.dp, Ink.HAIRLINE_V4, RoundedCornerShape(10.dp))
                                     .clickable {
-                                        val cur = jumpInput.toIntOrNull() ?: draftPage
-                                        val next = (cur + delta).coerceIn(0, book.totalPages)
+                                        val cur = jumpInput.toIntOrNull() ?: (if (isPct) ((draftPage.toFloat() / maxOf(1, book.totalPages)) * 100f).roundToInt() else draftPage)
+                                        val maxVal = if (isPct) 100 else book.totalPages
+                                        val next = (cur + delta).coerceIn(0, maxVal)
                                         jumpInput = "$next"
                                         Feedback.tick(context)
                                     }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                BasicText(if (delta > 0) "+$delta" else "$delta", style = TextStyle(color = Ink.TEXT_WARM, fontSize = 11.sp, fontFamily = Fonts.mono))
+                                val label = if (isPct) (if (delta > 0) "+$delta%" else "$delta%") else (if (delta > 0) "+$delta" else "$delta")
+                                BasicText(label, style = TextStyle(color = Ink.TEXT_WARM, fontSize = 11.sp, fontFamily = Fonts.mono))
                             }
                         }
                     }

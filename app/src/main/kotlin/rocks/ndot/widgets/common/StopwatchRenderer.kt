@@ -64,15 +64,24 @@ object StopwatchRenderer {
         val pusherTipX: Float get() = rightPusherTipX
         val pusherTipY: Float get() = rightPusherTipY
 
-        fun pusherHit(x: Float, y: Float, minRadius: Float): Boolean {
-            val reach = maxOf(r * 0.24f, minRadius)
+        fun rightPusherHit(x: Float, y: Float, minRadius: Float): Boolean {
+            val reach = maxOf(r * 0.28f, minRadius)
             val reachSq = reach * reach
             val dxR = x - rightPusherTipX
             val dyR = y - rightPusherTipY
-            if (dxR * dxR + dyR * dyR <= reachSq) return true
+            return dxR * dxR + dyR * dyR <= reachSq
+        }
+
+        fun leftPusherHit(x: Float, y: Float, minRadius: Float): Boolean {
+            val reach = maxOf(r * 0.28f, minRadius)
+            val reachSq = reach * reach
             val dxL = x - leftPusherTipX
             val dyL = y - leftPusherTipY
             return dxL * dxL + dyL * dyL <= reachSq
+        }
+
+        fun pusherHit(x: Float, y: Float, minRadius: Float): Boolean {
+            return rightPusherHit(x, y, minRadius) || leftPusherHit(x, y, minRadius)
         }
     }
 
@@ -96,13 +105,21 @@ object StopwatchRenderer {
         drawHands(c, g, face, dial, accent)
     }
 
-    fun drawControls(c: Canvas, g: Geometry, dial: Dial, crownPress: Float, pusherPress: Float) {
-        // Symmetrical knurled side pushers at 10:30 and 1:30
-        drawKnurledPusher(c, g.cx, g.cy, g.r, LEFT_PUSHER_ANGLE, dial, pusherPress)
-        drawKnurledPusher(c, g.cx, g.cy, g.r, RIGHT_PUSHER_ANGLE, dial, pusherPress)
-
-        // Mechanical top winding crown & looped bow ring
+    fun drawControls(
+        c: Canvas,
+        g: Geometry,
+        dial: Dial,
+        crownPress: Float,
+        leftPusherPress: Float,
+        rightPusherPress: Float
+    ) {
+        drawKnurledPusher(c, g.cx, g.cy, g.r, LEFT_PUSHER_ANGLE, dial, leftPusherPress)
+        drawKnurledPusher(c, g.cx, g.cy, g.r, RIGHT_PUSHER_ANGLE, dial, rightPusherPress)
         drawBowAndCrown(c, g.cx, g.crownZone, g.r, dial, crownPress)
+    }
+
+    fun drawControls(c: Canvas, g: Geometry, dial: Dial, crownPress: Float, pusherPress: Float) {
+        drawControls(c, g, dial, crownPress, pusherPress, pusherPress)
     }
 
     fun drawBody(c: Canvas, g: Geometry, dial: Dial) {

@@ -183,11 +183,13 @@ fun CoverImage(
                 )
             }
     ) {
+        val isFinishedBook = book.status == BookStatus.COMPLETED || book.rating > 0 || (book.totalPages > 0 && book.currentPage >= book.totalPages)
+        val shouldShowProgressBar = showProgressBar && !isFinishedBook
         val bitmap = loadedBitmap
         if (bitmap != null) {
             RealCoverCanvas(
                 bitmap = bitmap,
-                progressFraction = if (showProgressBar) book.progressFraction else 0f,
+                progressFraction = if (shouldShowProgressBar) book.progressFraction else 0f,
                 cornerRadiusPx = with(LocalDensity.current) { cornerRadius.toPx() },
                 modifier = Modifier.fillMaxSize()
             )
@@ -195,7 +197,7 @@ fun CoverImage(
             GeneratedFallbackCover(
                 title = book.title,
                 author = book.author,
-                progressFraction = if (showProgressBar) book.progressFraction else 0f,
+                progressFraction = if (shouldShowProgressBar) book.progressFraction else 0f,
                 cornerRadiusPx = with(LocalDensity.current) { cornerRadius.toPx() },
                 modifier = Modifier.fillMaxSize()
             )
