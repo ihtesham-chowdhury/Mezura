@@ -399,9 +399,272 @@ private fun restoreSeamlessMasterParchmentBand(
     }
 }
 
+
+private fun eraseHorizSmooth(bitmap: Bitmap, l: Float, t: Float, r: Float, b: Float) {
+    val w = bitmap.width
+    val h = bitmap.height
+    if (w < 8 || h < 8) return
+    val x1 = (l * w).toInt().coerceIn(2, w - 4)
+    val y1 = (t * h).toInt().coerceIn(2, h - 4)
+    val x2 = (r * w).toInt().coerceIn(x1 + 1, w - 3)
+    val y2 = (b * h).toInt().coerceIn(y1 + 1, h - 3)
+    val bw = x2 - x1
+    val bh = y2 - y1
+    if (bw <= 0 || bh <= 0) return
+
+    val rowPixels = IntArray(bw)
+    val rnd = java.util.Random(42L)
+    for (y in 0 until bh) {
+        val sy = (y1 + y).coerceIn(0, h - 1)
+        val pL = bitmap.getPixel((x1 - 2).coerceIn(0, w - 1), sy)
+        val pR = bitmap.getPixel((x2 + 2).coerceIn(0, w - 1), sy)
+        val lR = android.graphics.Color.red(pL); val lG = android.graphics.Color.green(pL); val lB = android.graphics.Color.blue(pL)
+        val rR = android.graphics.Color.red(pR); val rG = android.graphics.Color.green(pR); val rB = android.graphics.Color.blue(pR)
+        for (x in 0 until bw) {
+            val u = if (bw > 1) x.toFloat() / (bw - 1).toFloat() else 0.5f
+            val n = (rnd.nextGaussian() * 1.1).toInt()
+            val cr = ((1f - u) * lR + u * rR + n).toInt().coerceIn(0, 255)
+            val cg = ((1f - u) * lG + u * rG + n).toInt().coerceIn(0, 255)
+            val cb = ((1f - u) * lB + u * rB + n).toInt().coerceIn(0, 255)
+            rowPixels[x] = android.graphics.Color.argb(255, cr, cg, cb)
+        }
+        bitmap.setPixels(rowPixels, 0, bw, x1, sy, bw, 1)
+    }
+}
+
 private object GrandLibraryPlateLoader {
     @Volatile
     private var cachedBundle: GrandLibraryPlateBundle? = null
+
+    /**
+     * Erases the baked top brass ruler and the parchment gap below it WITHOUT sampling
+     * from the bottom boundary (which touches the KPI card borders and pocket-watch crown
+     * at my(0.136f)..my(0.141f) and caused a blurred vertical smudge band).
+     *
+     * Instead, fills each row by horizontally blending between the clean outer left/right
+     * parchment margins and the spotless upper parchment strip (cleanSampleTop..cleanSampleBottom),
+     * with soft 6px feathers on the left, right, top, and bottom edges.
+     */
+    private fun eraseRulerZoneFromTopParchment(
+        bmp: Bitmap,
+        leftNorm: Float,
+        topNorm: Float,
+        rightNorm: Float,
+        bottomNorm: Float,
+        cleanSampleTopNorm: Float,
+        cleanSampleBottomNorm: Float
+    ) {
+        val w = bmp.width
+        val h = bmp.height
+        val x1 = (leftNorm * w).toInt().coerceIn(8, w - 9)
+        val y1 = (topNorm * h).toInt().coerceIn(8, h - 9)
+        val x2 = (rightNorm * w).toInt().coerceIn(x1 + 1, w - 9)
+        val y2 = (bottomNorm * h).toInt().coerceIn(y1 + 1, h - 9)
+
+        val sampleY1 = (cleanSampleTopNorm * h).toInt().coerceIn(2, y1 - 2)
+        val sampleY2 = (cleanSampleBottomNorm * h).toInt().coerceIn(sampleY1 + 1, y1 - 1)
+        val sampleH = (sampleY2 - sampleY1 + 1).coerceAtLeast(1)
+
+        // Precompute clean horizontal parchment profile from the unblemished strip above the ruler
+        val cleanProfileR = FloatArray(w)
+        val cleanProfileG = FloatArray(w)
+        val cleanProfileB = FloatArray(w)
+        for (x in x1..x2) {
+            var sr = 0f
+            var sg = 0f
+            var sb = 0f
+            for (sy in sampleY1..sampleY2) {
+                val c = bmp.getPixel(x, sy)
+                sr += ((c shr 16) and 0xFF)
+                sg += ((c shr 8) and 0xFF)
+                sb += (c and 0xFF)
+            }
+            cleanProfileR[x] = sr / sampleH
+            cleanProfileG[x] = sg / sampleH
+            cleanProfileB[x] = sb / sampleH
+        }
+
+        // Smooth the horizontal profile with a wide box filter so no vertical grain streaks exist
+        val radius = ((x2 - x1) * 0.08f).toInt().coerceAtLeast(12)
+        val smoothR = FloatArray(w)
+        val smoothG = FloatArray(w)
+        val smoothB = FloatArray(w)
+        for (x in x1..x2) {
+            var sr = 0f
+            var sg = 0f
+            var sb = 0f
+            var count = 0
+            val kStart = (x - radius).coerceAtLeast(x1)
+            val kEnd = (x + radius).coerceAtMost(x2)
+            for (kx in kStart..kEnd) {
+                sr += cleanProfileR[kx]
+                sg += cleanProfileG[kx]
+                sb += cleanProfileB[kx]
+                count++
+            }
+            smoothR[x] = sr / count
+            smoothG[x] = sg / count
+            smoothB[x] = sb / count
+        }
+
+        val spanX = (x2 - x1).coerceAtLeast(1).toFloat()
+        val featherPx = 5
+        val rowPixels = IntArray(x2 - x1 + 1)
+
+        for (y in y1..y2) {
+            // Sample clean left and right outer margins for this row to preserve subtle vertical lighting
+            var leftR = 0f; var leftG = 0f; var leftB = 0f
+            var rightR = 0f; var rightG = 0f; var rightB = 0f
+            for (dx in 2..5) {
+                val cL = bmp.getPixel((x1 - dx).coerceAtLeast(0), y)
+                leftR += (cL shr 16) and 0xFF
+                leftG += (cL shr 8) and 0xFF
+                leftB += cL and 0xFF
+
+                val cR = bmp.getPixel((x2 + dx).coerceAtMost(w - 1), y)
+                rightR += (cR shr 16) and 0xFF
+                rightG += (cR shr 8) and 0xFF
+                rightB += cR and 0xFF
+            }
+            leftR /= 4f; leftG /= 4f; leftB /= 4f
+            rightR /= 4f; rightG /= 4f; rightB /= 4f
+
+            val topEdgeAlpha = ((y - y1 + 1).toFloat() / featherPx).coerceIn(0f, 1f)
+            val botEdgeAlpha = ((y2 - y + 1).toFloat() / featherPx).coerceIn(0f, 1f)
+            val vAlpha = minOf(topEdgeAlpha, botEdgeAlpha)
+
+            for (x in x1..x2) {
+                val tx = (x - x1).toFloat() / spanX
+                val horizR = leftR + (rightR - leftR) * tx
+                val horizG = leftG + (rightG - leftG) * tx
+                val horizB = leftB + (rightB - leftB) * tx
+
+                // Blend 65% smoothed top parchment profile + 35% row-level horizontal gradient
+                val targetR = smoothR[x] * 0.65f + horizR * 0.35f
+                val targetG = smoothG[x] * 0.65f + horizG * 0.35f
+                val targetB = smoothB[x] * 0.65f + horizB * 0.35f
+
+                val leftEdgeAlpha = ((x - x1 + 1).toFloat() / featherPx).coerceIn(0f, 1f)
+                val rightEdgeAlpha = ((x2 - x + 1).toFloat() / featherPx).coerceIn(0f, 1f)
+                val hAlpha = minOf(leftEdgeAlpha, rightEdgeAlpha)
+                val alpha = vAlpha * hAlpha
+
+                val orig = bmp.getPixel(x, y)
+                val oR = (orig shr 16) and 0xFF
+                val oG = (orig shr 8) and 0xFF
+                val oB = orig and 0xFF
+
+                val outR = (oR + (targetR - oR) * alpha).toInt().coerceIn(0, 255)
+                val outG = (oG + (targetG - oG) * alpha).toInt().coerceIn(0, 255)
+                val outB = (oB + (targetB - oB) * alpha).toInt().coerceIn(0, 255)
+
+                rowPixels[x - x1] = (0xFF shl 24) or (outR shl 16) or (outG shl 8) or outB
+            }
+            bmp.setPixels(rowPixels, 0, rowPixels.size, x1, y, rowPixels.size, 1)
+        }
+    }
+
+    /**
+     * Wipes the entire baked top brass ruler and its protruding carriage tabs
+     * [0.052f..0.948f, 0.040f..0.135f] to spotless cream parchment
+     * by interpolating vertically between box-smoothed top and bottom parchment strips.
+     */
+    private fun eraseVertSmoothFeathered(bitmap: Bitmap, l: Float, t: Float, r: Float, b: Float) {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w < 16 || h < 16) return
+        val x1 = (l * w).toInt().coerceIn(4, w - 5)
+        val y1 = (t * h).toInt().coerceIn(6, h - 7)
+        val x2 = (r * w).toInt().coerceIn(x1 + 1, w - 4)
+        val y2 = (b * h).toInt().coerceIn(y1 + 1, h - 6)
+        val bw = x2 - x1
+        val bh = y2 - y1
+        if (bw <= 0 || bh <= 0) return
+
+        val topR = FloatArray(bw); val topG = FloatArray(bw); val topB = FloatArray(bw)
+        val botR = FloatArray(bw); val botG = FloatArray(bw); val botB = FloatArray(bw)
+
+        for (x in 0 until bw) {
+            val sx = x1 + x
+            var tr = 0f; var tg = 0f; var tb = 0f; var tCnt = 0
+            var br = 0f; var bg = 0f; var bb = 0f; var bCnt = 0
+            for (dx in -10..10 step 2) {
+                val cx = (sx + dx).coerceIn(0, w - 1)
+                for (dy in 2..5) {
+                    val pT = bitmap.getPixel(cx, (y1 - dy).coerceIn(0, h - 1))
+                    tr += Color.red(pT); tg += Color.green(pT); tb += Color.blue(pT); tCnt++
+                    val pB = bitmap.getPixel(cx, (y2 + dy).coerceIn(0, h - 1))
+                    br += Color.red(pB); bg += Color.green(pB); bb += Color.blue(pB); bCnt++
+                }
+            }
+            topR[x] = tr / tCnt; topG[x] = tg / tCnt; topB[x] = tb / tCnt
+            botR[x] = br / bCnt; botG[x] = bg / bCnt; botB[x] = bb / bCnt
+        }
+
+        val rowPixels = IntArray(bw)
+        val rnd = java.util.Random(42L)
+        for (y in 0 until bh) {
+            val v = if (bh > 1) y.toFloat() / (bh - 1).toFloat() else 0.5f
+            for (x in 0 until bw) {
+                val n = (rnd.nextGaussian() * 1.1).toInt()
+                val cr = ((1f - v) * topR[x] + v * botR[x] + n).toInt().coerceIn(0, 255)
+                val cg = ((1f - v) * topG[x] + v * botG[x] + n).toInt().coerceIn(0, 255)
+                val cb = ((1f - v) * topB[x] + v * botB[x] + n).toInt().coerceIn(0, 255)
+                rowPixels[x] = Color.argb(255, cr, cg, cb)
+            }
+            bitmap.setPixels(rowPixels, 0, bw, x1, (y1 + y).coerceIn(0, h - 1), bw, 1)
+        }
+    }
+
+    /**
+     * Erases a KPI number slot by cloning pure, unprinted card parchment from inside
+     * the same card row with soft feathered edges — NEVER touching the corner screws
+     * or the protractor/pocket-watch illustrations, eliminating 100% of bleed lines!
+     */
+    private fun cloneCardParchmentFeathered(
+        dstBitmap: Bitmap,
+        srcMaster: Bitmap,
+        dstL: Float, dstT: Float, dstR: Float, dstB: Float,
+        srcL: Float, srcT: Float, srcR: Float, srcB: Float,
+        rightFeatherPxOverride: Int? = null
+    ) {
+        val w = dstBitmap.width
+        val h = dstBitmap.height
+        if (w < 16 || h < 16) return
+        val dx1 = (dstL * w).toInt().coerceIn(2, w - 4)
+        val dy1 = (dstT * h).toInt().coerceIn(2, h - 4)
+        val dx2 = (dstR * w).toInt().coerceIn(dx1 + 1, w - 2)
+        val dy2 = (dstB * h).toInt().coerceIn(dy1 + 1, h - 2)
+        val bw = dx2 - dx1
+        val bh = dy2 - dy1
+
+        val sx1 = (srcL * w).toInt().coerceIn(2, w - 4)
+        val sy1 = (srcT * h).toInt().coerceIn(2, h - 4)
+        val sx2 = (srcR * w).toInt().coerceIn(sx1 + 4, w - 2)
+        val sy2 = (srcB * h).toInt().coerceIn(sy1 + 4, h - 2)
+        val sw = (sx2 - sx1).coerceAtLeast(1)
+        val sh = (sy2 - sy1).coerceAtLeast(1)
+
+        val fStd = (0.008f * w).toInt().coerceAtLeast(5)
+        val fRight = rightFeatherPxOverride ?: fStd
+
+        for (y in 0 until bh) {
+            val sy = (sy1 + (y % sh)).coerceIn(0, h - 1)
+            val wy = minOf(1f, y.toFloat() / fStd, (bh - 1 - y).toFloat() / fStd)
+            val dy = (dy1 + y).coerceIn(0, h - 1)
+            for (x in 0 until bw) {
+                val sx = (sx1 + (x % sw)).coerceIn(0, w - 1)
+                val wx = minOf(1f, x.toFloat() / fStd, (bw - 1 - x).toFloat() / fRight.coerceAtLeast(1))
+                val alpha = minOf(wx, wy).coerceIn(0f, 1f)
+                val srcP = srcMaster.getPixel(sx, sy)
+                val dstP = dstBitmap.getPixel((dx1 + x).coerceIn(0, w - 1), dy)
+                val cr = ((1f - alpha) * Color.red(dstP) + alpha * Color.red(srcP)).toInt().coerceIn(0, 255)
+                val cg = ((1f - alpha) * Color.green(dstP) + alpha * Color.green(srcP)).toInt().coerceIn(0, 255)
+                val cb = ((1f - alpha) * Color.blue(dstP) + alpha * Color.blue(srcP)).toInt().coerceIn(0, 255)
+                dstBitmap.setPixel((dx1 + x).coerceIn(0, w - 1), dy, Color.argb(255, cr, cg, cb))
+            }
+        }
+    }
 
     fun getOrLoad(context: Context): GrandLibraryPlateBundle? {
         cachedBundle?.let { return it }
@@ -419,13 +682,51 @@ private object GrandLibraryPlateLoader {
             } ?: return null
 
             val cleanBasePlate = rawBasePlate.copy(Bitmap.Config.ARGB_8888, true)
+            val base = cleanBasePlate
+            val master = rawBasePlate
+
+            // --- FIX 1: Wipe camera hole and erase ruler zone strictly from top parchment ---
+            eraseHorizSmooth(base, 0.455f, 0.021f, 0.545f, 0.049f)
+            eraseRulerZoneFromTopParchment(
+                bmp = base,
+                leftNorm = 0.050f,
+                topNorm = 0.040f,
+                rightNorm = 0.950f,
+                bottomNorm = 0.133f,
+                cleanSampleTopNorm = 0.023f,
+                cleanSampleBottomNorm = 0.036f
+            )
+
+            // --- FIX 2B: Clean the 4 KPI number slots using pure interior card parchment ---
+            cloneCardParchmentFeathered(
+                dstBitmap = base, srcMaster = master,
+                dstL = 0.110f, dstT = 0.170f, dstR = 0.205f, dstB = 0.208f,
+                srcL = 0.215f, srcT = 0.168f, srcR = 0.385f, srcB = 0.210f
+            ) // Card 1: PAGES READ ("70")
+
+            cloneCardParchmentFeathered(
+                dstBitmap = base, srcMaster = master,
+                dstL = 0.542f, dstT = 0.170f, dstR = 0.768f, dstB = 0.208f,
+                srcL = 0.215f, srcT = 0.168f, srcR = 0.385f, srcB = 0.210f
+            ) // Card 2: READING TIME ("2h 48m")
+
+            cloneCardParchmentFeathered(
+                dstBitmap = base, srcMaster = master,
+                dstL = 0.110f, dstT = 0.265f, dstR = 0.2975f, dstB = 0.310f,
+                srcL = 0.595f, srcT = 0.264f, srcR = 0.755f, srcB = 0.310f,
+                rightFeatherPxOverride = 2
+            ) // Card 3: AVERAGE PACE ("25 p/h" — stops at 0.2975f before protractor at 0.298f)
+
+            cloneCardParchmentFeathered(
+                dstBitmap = base, srcMaster = master,
+                dstL = 0.542f, dstT = 0.265f, dstR = 0.595f, dstB = 0.306f,
+                srcL = 0.595f, srcT = 0.264f, srcR = 0.755f, srcB = 0.310f
+            ) // Card 4: BOOKS COMPLETED ("4")
+
+            // --- FIX 2: Wipe the entire baked bottom Genre Distribution section below READING CADENCE ---
+            eraseHorizSmooth(base, 0.048f, 0.805f, 0.952f, 0.988f)
+
             rawBasePlate.recycle()
-
-            // 1. Wipe top ruler area seamlessly
-            restoreSeamlessMasterParchmentBand(cleanBasePlate, topFrac = 0.012f, bottomFrac = 0.134f)
-
-            // 2. Wipe bottom genre area seamlessly (starts at 0.814f strictly below 365-dot matrix)
-            restoreSeamlessMasterParchmentBand(cleanBasePlate, topFrac = 0.796f, bottomFrac = 0.982f)
 
             val caliperCursor = try {
                 context.assets.open("reading_stats/stats_caliper_cursor.png").use {
@@ -520,27 +821,17 @@ fun GrandLibraryFolioStatsScreen(
     val bundle = remember(context) { GrandLibraryPlateLoader.getOrLoad(context) }
 
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
 
-    // 1. Vernier Range Slider State & Micro-Tick Detent Observer
-    var dragRangeIndexFloat by remember { mutableStateOf<Float?>(null) }
-    val targetRangeIndexFloat = dragRangeIndexFloat ?: selectedRange.ordinal.toFloat()
-    val animatedRangeIndexFloat by animateFloatAsState(
-        targetValue = targetRangeIndexFloat,
-        animationSpec = if (dragRangeIndexFloat != null) {
-            snap() // Instant 1:1 finger tracking while dragging!
-        } else {
-            spring(dampingRatio = 0.82f, stiffness = 820f) // Fast, crisp snap on tap!
-        },
-        label = "vernierRangeIndex"
-    )
+    // 1. Vernier Range Slider State & Continuous 1:1 Tracking with Spring Snap (F5, F6)
+    val rangeIndex = remember { Animatable(selectedRange.ordinal.toFloat()) }
+    var lastDetent by remember { mutableIntStateOf(selectedRange.ordinal) }
+    val velocityTracker = remember { androidx.compose.ui.input.pointer.util.VelocityTracker() }
 
-    // Map animatedRangeIndexFloat (0f..3f) to the 4 label X centers (0.145f, 0.270f, 0.405f, 0.540f):
-    val animatedLabelCenterXNorm = remember(animatedRangeIndexFloat) {
-        val stops = floatArrayOf(0.145f, 0.270f, 0.405f, 0.540f)
-        val idx = animatedRangeIndexFloat.coerceIn(0f, 3f)
-        val i0 = idx.toInt().coerceIn(0, 2)
-        val frac = idx - i0
-        stops[i0] + frac * (stops[i0 + 1] - stops[i0])
+    LaunchedEffect(selectedRange) {
+        if (rangeIndex.targetValue.roundToInt() != selectedRange.ordinal) {
+            rangeIndex.animateTo(selectedRange.ordinal.toFloat(), spring(dampingRatio = 0.85f, stiffness = 380f))
+        }
     }
 
     // 2. Animated KPI Counters
@@ -646,17 +937,22 @@ fun GrandLibraryFolioStatsScreen(
                                     val nx = pos.x / size.width
                                     val ny = pos.y / size.height
                                     when {
-                                        // 1. Top Brass Vernier Range Rule
+                                        // 1. Top Brass Vernier Range Rule (Instant tap target snap)
                                         ny in 0.020f..0.125f -> {
-                                            val tappedRange = when {
-                                                nx < 0.21f -> FolioStatsRange.DAYS_7
-                                                nx < 0.34f -> FolioStatsRange.DAYS_30
-                                                nx < 0.47f -> FolioStatsRange.YEAR
-                                                else -> FolioStatsRange.ALL
+                                            val stops = floatArrayOf(0.145f, 0.270f, 0.405f, 0.540f)
+                                            val targetIdx = stops.indices.minByOrNull { kotlin.math.abs(nx - stops[it]) } ?: 0
+                                            if (targetIdx != lastDetent) {
+                                                lastDetent = targetIdx
+                                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                                soundHaptics.onVernierDetentLock()
                                             }
-                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                            soundHaptics.onVernierDetentLock()
-                                            onRangeSelected(tappedRange)
+                                            onRangeSelected(FolioStatsRange.entries[targetIdx])
+                                            scope.launch {
+                                                rangeIndex.animateTo(
+                                                    targetValue = targetIdx.toFloat(),
+                                                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                                                )
+                                            }
                                         }
                                         // 2. Pocket Watch Escapement Tap
                                         ny in 0.130f..0.240f && nx > 0.50f -> {
@@ -668,11 +964,22 @@ fun GrandLibraryFolioStatsScreen(
                                             selectedMonthIndex = if (selectedMonthIndex == mIdx) null else mIdx
                                             soundHaptics.onBookSpineTap(mIdx)
                                         }
-                                        // 4. Genre Walnut Rulers Tap (Fix 3)
-                                        ny in 0.840f..0.985f -> {
-                                            val gIdx = (((pos.y - (1120f / 1320f) * size.height) / ((170f / 1320f) * size.height)) * 4f).toInt().coerceIn(0, 3)
-                                            selectedGenreIndex = if (selectedGenreIndex == gIdx) null else gIdx
-                                            soundHaptics.onGenreCaliperSlide()
+                                        // 4. Genre Walnut Rulers Tap (matches lowered & enlarged GENRE DISTRIBUTION island at 0.822f..0.984f)
+                                        ny in 0.820f..0.985f -> {
+                                            val genreRowCenters = floatArrayOf(0.874f, 0.906f, 0.938f, 0.968f)
+                                            var hitGenre = -1
+                                            if (nx in 0.052f..0.948f && ny in 0.855f..0.985f) {
+                                                for (i in genreRowCenters.indices) {
+                                                    if (kotlin.math.abs(ny - genreRowCenters[i]) <= 0.016f) {
+                                                        hitGenre = i
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                            if (hitGenre != -1) {
+                                                selectedGenreIndex = if (selectedGenreIndex == hitGenre) null else hitGenre
+                                                soundHaptics.onGenreCaliperSlide()
+                                            }
                                         }
                                         else -> {
                                             scrubbedDayIndex = null
@@ -687,37 +994,59 @@ fun GrandLibraryFolioStatsScreen(
                                 onDragStart = { pos ->
                                     val ny = pos.y / size.height
                                     if (ny in 0.020f..0.130f) {
-                                        val nx = pos.x / size.width
-                                        dragRangeIndexFloat = ((nx - 0.145f) / (0.540f - 0.145f) * 3f).coerceIn(0f, 3f)
+                                        velocityTracker.resetTracking()
+                                        scope.launch { rangeIndex.stop() }
                                     }
                                 },
                                 onDragEnd = {
-                                    dragRangeIndexFloat?.let { dIdx ->
-                                        val nearestIdx = dIdx.roundToInt().coerceIn(0, 3)
-                                        val nearest = FolioStatsRange.entries[nearestIdx]
-                                        dragRangeIndexFloat = null
+                                    val stepW = (0.540f - 0.145f) * size.width / 3f
+                                    val velocityPx = velocityTracker.calculateVelocity().x
+                                    val indexVelocity = velocityPx / stepW
+                                    val target = rangeIndex.value.roundToInt().coerceIn(0, 3)
+                                    if (target != lastDetent) {
+                                        lastDetent = target
                                         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                         soundHaptics.onVernierDetentLock()
-                                        onRangeSelected(nearest)
+                                    }
+                                    onRangeSelected(FolioStatsRange.entries[target])
+                                    scope.launch {
+                                        rangeIndex.animateTo(
+                                            targetValue = target.toFloat(),
+                                            animationSpec = spring(
+                                                dampingRatio = 0.85f,
+                                                stiffness = 380f,
+                                                visibilityThreshold = 0.001f
+                                            ),
+                                            initialVelocity = indexVelocity
+                                        )
                                     }
                                     scrubbedDayIndex = null
                                 },
                                 onDragCancel = {
-                                    dragRangeIndexFloat = null
+                                    val target = rangeIndex.value.roundToInt().coerceIn(0, 3)
+                                    scope.launch {
+                                        rangeIndex.animateTo(
+                                            targetValue = target.toFloat(),
+                                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                                        )
+                                    }
                                     scrubbedDayIndex = null
                                 },
-                                onHorizontalDrag = { change, _ ->
+                                onHorizontalDrag = { change, dragAmount ->
                                     val nx = change.position.x / size.width
                                     val ny = change.position.y / size.height
                                     when {
-                                        // Dragging Top Brass Vernier
-                                        dragRangeIndexFloat != null || ny in 0.020f..0.130f -> {
+                                        // Dragging Top Brass Vernier (1:1 continuous mapping in pixel space, F6)
+                                        ny in 0.020f..0.130f -> {
                                             change.consume()
-                                            val oldIdx = dragRangeIndexFloat?.roundToInt() ?: selectedRange.ordinal
-                                            val newIdxFloat = ((nx - 0.145f) / (0.540f - 0.145f) * 3f).coerceIn(0f, 3f)
-                                            dragRangeIndexFloat = newIdxFloat
-                                            val newIdx = newIdxFloat.roundToInt()
-                                            if (newIdx != oldIdx) {
+                                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                            val stepW = (0.540f - 0.145f) * size.width / 3f
+                                            val deltaIndex = dragAmount / stepW
+                                            val nextVal = (rangeIndex.value + deltaIndex).coerceIn(0f, 3f)
+                                            scope.launch { rangeIndex.snapTo(nextVal) }
+                                            val rounded = nextVal.roundToInt().coerceIn(0, 3)
+                                            if (rounded != lastDetent) {
+                                                lastDetent = rounded
                                                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                                 soundHaptics.onVernierSlideTick()
                                             }
@@ -763,7 +1092,7 @@ fun GrandLibraryFolioStatsScreen(
                                 bundle = bundle,
                                 payload = payload,
                                 selectedRange = selectedRange,
-                                vernierXNorm = animatedLabelCenterXNorm,
+                                rangeIndexFloat = rangeIndex.value,
                                 animPages = animPages,
                                 animMinutes = animMinutes,
                                 animPace = animPace,
@@ -792,7 +1121,7 @@ private fun drawArtifactFreeBrassVernierRuler(
     w: Float,
     h: Float,
     selectedRange: FolioStatsRange,
-    animatedLabelCenterXNorm: Float
+    rangeIndexFloat: Float
 ) {
     val barL = 0.046f * w
     val barR = 0.954f * w
@@ -864,8 +1193,12 @@ private fun drawArtifactFreeBrassVernierRuler(
     val fm = lblPaint.fontMetrics
     val lblBaselineY = barRect.centerY() - (fm.ascent + fm.descent) / 2f
 
-    // Subtle brass highlight pill behind the active range label
-    val activePillCx = animatedLabelCenterXNorm * w
+    // Subtle brass highlight pill behind the active range label (100% in sync with carriage, F5)
+    val labelStops = floatArrayOf(0.145f, 0.270f, 0.405f, 0.540f)
+    val idxClamped = rangeIndexFloat.coerceIn(0f, 3f)
+    val low = idxClamped.toInt().coerceIn(0, 2)
+    val frac = idxClamped - low
+    val activePillCx = (labelStops[low] + frac * (labelStops[low + 1] - labelStops[low])) * w
     val activePillW = 0.108f * w
     val activePillH = barH * 0.48f
     val activePillRect = RectF(
@@ -889,8 +1222,9 @@ private fun drawArtifactFreeBrassVernierRuler(
     }
 
     // 6. Single 3D Machined Brass Vernier Carriage Gliding on the Right Slot Track
-    val progress01 = ((animatedLabelCenterXNorm - 0.145f) / (0.540f - 0.145f)).coerceIn(0f, 1f)
-    val medCx = (0.655f + progress01 * 0.135f) * w
+    // Anchor calculation guarantees beak tip NEVER overlaps "ALL" with >=6dp gap (F5)
+    val progress01 = (rangeIndexFloat / 3f).coerceIn(0f, 1f)
+    val medCx = (0.686f + progress01 * (0.865f - 0.686f)) * w
     val medCy = barRect.centerY()
     val medR = barH * 0.49f
     val claspW = medR * 1.44f
@@ -949,7 +1283,7 @@ private fun drawHybridGrandLibraryFolio(
     bundle: GrandLibraryPlateBundle,
     payload: GrandLibraryStatsPayload,
     selectedRange: FolioStatsRange,
-    vernierXNorm: Float,
+    rangeIndexFloat: Float,
     animPages: Int,
     animMinutes: Int,
     animPace: Int,
@@ -974,8 +1308,8 @@ private fun drawHybridGrandLibraryFolio(
     // 0. Base Master Plate (stats_bg.png: 696 x 1320)
     nc.drawBitmap(bundle.cleanBasePlate, null, RectF(0f, 0f, w, h), bitmapPaint)
 
-    // 1. Authentic Top Brass Vernier Ruler & 3D Caliper Cursor (Request 5.1)
-    drawArtifactFreeBrassVernierRuler(nc, w, h, selectedRange, vernierXNorm)
+    // 1. Authentic Top Brass Vernier Ruler & 3D Caliper Cursor (Request 5.1, F5, F6)
+    drawArtifactFreeBrassVernierRuler(nc, w, h, selectedRange, rangeIndexFloat)
 
     // 2. Top 4 Metric Cards (Clean dynamic letterpress serif numbers, #2A221C)
     val cardPaint52 = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -993,10 +1327,17 @@ private fun drawHybridGrandLibraryFolio(
     // Card 1: PAGES READ at (48, 254)
     nc.drawText("%,d".format(animPages), 48f * sx, 254f * sy, cardPaint52)
 
-    // Card 2: READING TIME at (379, 254)
+    // Card 2: READING TIME at (379, 254) with dynamic scaling for pocket watch clearance (F7)
     val hrs = animMinutes / 60
     val mins = animMinutes % 60
     val timeStr = if (hrs > 0) "${hrs}h ${mins.toString().padStart(2, '0')}m" else "${mins}m"
+    val maxTextW = (548f - 18f - 379f) * sx // At least 10.dp clearance to pocket watch at 548f * sx
+    var curTextSize = 48f * sy
+    cardPaint48.textSize = curTextSize
+    while (cardPaint48.measureText(timeStr) > maxTextW && curTextSize > 24f * sy) {
+        curTextSize -= 1.5f * sy
+        cardPaint48.textSize = curTextSize
+    }
     nc.drawText(timeStr, 379f * sx, 254f * sy, cardPaint48)
 
     // Card 3: AVERAGE PACE at (48, 388)
@@ -1225,7 +1566,8 @@ private fun drawHybridGrandLibraryFolio(
         w = w,
         h = h,
         genres = payload.genres,
-        genreProgress = genreProgress
+        genreProgress = genreProgress,
+        selectedGenreIndex = selectedGenreIndex
     )
 }
 
@@ -1235,115 +1577,232 @@ private fun drawCleanGenreDistribution(
     w: Float,
     h: Float,
     genres: List<GenreDistributionItem>,
-    genreProgress: List<Float>
+    genreProgress: List<Float>,
+    selectedGenreIndex: Int?
 ) {
-    // 1. Section Header ("GENRE DISTRIBUTION") matching "READING VELOCITY CURVE"
-    val hdrPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-        color = Color.rgb(42, 28, 14)
-        textSize = 0.0195f * h
+    // =========================================================================
+    // 6. GENRE DISTRIBUTION ISLAND (Lowered with clear gap & matched to READING CADENCE width)
+    //    - Upper READING CADENCE island spans 0.052f..0.948f and ends at 0.802f
+    //    - This island spans the EXACT same width 0.052f..0.948f
+    //    - Placed lower at 0.822f..0.984f -> clean 0.020f * h separation gap!
+    // =========================================================================
+    val genreCardLeft = 0.052f * w
+    val genreCardTop = 0.822f * h
+    val genreCardRight = 0.948f * w
+    val genreCardBottom = 0.984f * h
+    val genreCardCorner = 0.026f * w
+    val genreCardRect = RectF(genreCardLeft, genreCardTop, genreCardRight, genreCardBottom)
+
+    // Soft ambient drop shadow matching the upper READING CADENCE island
+    val islandShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(42, 38, 24, 12)
+        setShadowLayer(0.014f * w, 0f, 0.005f * h, Color.argb(75, 30, 18, 8))
+    }
+    nc.drawRoundRect(
+        RectF(genreCardLeft, genreCardTop + 0.003f * h, genreCardRight, genreCardBottom + 0.004f * h),
+        genreCardCorner,
+        genreCardCorner,
+        islandShadowPaint
+    )
+
+    // Warm archival parchment surface matching READING CADENCE island
+    val islandFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        shader = LinearGradient(
+            genreCardLeft, genreCardTop,
+            genreCardLeft, genreCardBottom,
+            intArrayOf(
+                Color.rgb(244, 233, 212),
+                Color.rgb(236, 222, 196)
+            ),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
+    }
+    nc.drawRoundRect(genreCardRect, genreCardCorner, genreCardCorner, islandFillPaint)
+
+    // Crisp outer walnut/sepia border + subtle inner hairline frame matching upper island
+    val islandBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 0.0032f * w
+        color = Color.argb(175, 118, 90, 62)
+    }
+    nc.drawRoundRect(genreCardRect, genreCardCorner, genreCardCorner, islandBorderPaint)
+
+    val insetPx = 0.007f * w
+    val islandInnerBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 0.0016f * w
+        color = Color.argb(85, 140, 110, 78)
+    }
+    nc.drawRoundRect(
+        RectF(
+            genreCardLeft + insetPx,
+            genreCardTop + insetPx,
+            genreCardRight - insetPx,
+            genreCardBottom - insetPx
+        ),
+        (genreCardCorner - insetPx).coerceAtLeast(4f),
+        (genreCardCorner - insetPx).coerceAtLeast(4f),
+        islandInnerBorderPaint
+    )
+
+    val serifBold = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+    val inkDark = Color.rgb(38, 25, 12)
+    val crimsonInk = Color.rgb(168, 48, 36)
+
+    // Section Title: "GENRE DISTRIBUTION"
+    val genreHeaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = serifBold
+        textSize = 0.0178f * h
+        color = inkDark
         letterSpacing = 0.06f
-    }
-    nc.drawText("GENRE DISTRIBUTION", 0.068f * w, 0.822f * h, hdrPaint)
-
-    val rowCentersY = floatArrayOf(0.854f * h, 0.887f * h, 0.920f * h, 0.953f * h)
-    val rulerL = 0.405f * w
-    val rulerR = 0.835f * w
-    val rulerW = rulerR - rulerL
-    val rulerH = 0.021f * h
-    val claspW = 0.022f * w
-    val claspH = rulerH * 1.24f
-
-    val namePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
-        color = Color.rgb(38, 25, 12)
-        textSize = 0.0185f * h
         textAlign = Paint.Align.LEFT
     }
-    val pctPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-        color = Color.rgb(38, 25, 12)
-        textSize = 0.0185f * h
-        textAlign = Paint.Align.LEFT
-    }
-    val fm = namePaint.fontMetrics
+    nc.drawText(
+        "GENRE DISTRIBUTION",
+        0.080f * w,
+        0.847f * h,
+        genreHeaderPaint
+    )
 
-    for (i in 0 until 4) {
-        val item = genres.getOrNull(i) ?: continue
-        val cy = rowCentersY[i]
-        val textBaseY = cy - (fm.ascent + fm.descent) / 2f
+    // 4 Genre rows scaled to fill the larger island (0.822f..0.984f)
+    val genreY = floatArrayOf(
+        0.874f * h,
+        0.906f * h,
+        0.938f * h,
+        0.968f * h
+    )
+    val trackLeft = 0.405f * w
+    val trackRight = 0.835f * w
+    val trackW = trackRight - trackLeft
+    val trackH = 0.0235f * h
 
-        // A. Left Genre Name (properly aligned & ellipsized before rulerL)
-        val displayTitle = if (item.genreName.length > 20) item.genreName.take(19) + "…" else item.genreName
-        nc.drawText(displayTitle, 0.068f * w, textBaseY, namePaint)
+    for (idx in 0 until min(4, genres.size)) {
+        val item = genres[idx]
+        val cy = genreY[idx]
+        val animPct = genreProgress.getOrElse(idx) { item.percentage / 100f }.coerceIn(0f, 1f)
+        val pctInt = (animPct * 100f).roundToInt()
+        val isSelected = selectedGenreIndex == idx
 
-        // B. Center 3D Carved Walnut Millimeter Ruler Track (Zero Clasp Smudges!)
-        val barRect = RectF(rulerL, cy - rulerH / 2f, rulerR, cy + rulerH / 2f)
-        nc.drawRoundRect(
-            RectF(barRect.left, barRect.top + 2f, barRect.right, barRect.bottom + 3f),
-            rulerH * 0.32f, rulerH * 0.32f,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 30, 18, 8) }
-        )
-        nc.drawRoundRect(
-            barRect, rulerH * 0.32f, rulerH * 0.32f,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(
-                    barRect.left, barRect.top, barRect.left, barRect.bottom,
-                    intArrayOf(Color.rgb(104, 70, 38), Color.rgb(74, 48, 24), Color.rgb(54, 34, 16)),
-                    floatArrayOf(0f, 0.5f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-            }
-        )
-        nc.drawRoundRect(
-            barRect, rulerH * 0.32f, rulerH * 0.32f,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE; strokeWidth = 0.0016f * w; color = Color.rgb(142, 106, 62)
-            }
-        )
-
-        // Left & right brass mounting screws on walnut bar
-        for (sx in floatArrayOf(rulerL + 0.018f * w, rulerR - 0.018f * w)) {
-            nc.drawCircle(sx, cy, rulerH * 0.16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(208, 178, 118) })
+        // Left Genre Label (aligned with upper island's left inner margin)
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = serifBold
+            textSize = 0.0195f * h
+            color = if (isSelected) crimsonInk else inkDark
+            textAlign = Paint.Align.LEFT
         }
+        val labelText = if (item.genreName.length > 20) item.genreName.take(19) + "…" else item.genreName.uppercase()
+        nc.drawText(labelText, 0.080f * w, cy + labelPaint.textSize * 0.34f, labelPaint)
 
-        // Top & bottom millimeter ruler ticks along walnut bar
+        // Recessed Walnut Slide-Rule Slot
+        val slotRect = RectF(trackLeft, cy - trackH * 0.50f, trackRight, cy + trackH * 0.50f)
+        val slotCorner = trackH * 0.28f
+
+        val slotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            shader = LinearGradient(
+                slotRect.left, slotRect.top,
+                slotRect.left, slotRect.bottom,
+                intArrayOf(
+                    Color.rgb(54, 35, 21),
+                    Color.rgb(78, 52, 33),
+                    Color.rgb(46, 30, 18)
+                ),
+                floatArrayOf(0f, 0.5f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        nc.drawRoundRect(slotRect, slotCorner, slotCorner, slotPaint)
+
+        val slotBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 0.0022f * w
+            color = Color.argb(190, 32, 18, 10)
+        }
+        nc.drawRoundRect(slotRect, slotCorner, slotCorner, slotBorderPaint)
+
+        // Millimeter ruler tick marks along walnut slot
         val tickP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(175, 224, 202, 162); strokeWidth = 1.2f }
-        val tickStart = rulerL + 0.036f * w
-        val tickEnd = rulerR - 0.036f * w
+        val tickStart = trackLeft + 0.016f * w
+        val tickEnd = trackRight - 0.016f * w
         for (t in 0..36) {
             val tx = tickStart + (t / 36f) * (tickEnd - tickStart)
-            val tLen = if (t % 5 == 0) rulerH * 0.28f else rulerH * 0.16f
-            nc.drawLine(tx, barRect.top + 1.5f, tx, barRect.top + 1.5f + tLen, tickP)
-            nc.drawLine(tx, barRect.bottom - 1.5f, tx, barRect.bottom - 1.5f - tLen, tickP)
+            val tLen = if (t % 5 == 0) trackH * 0.28f else trackH * 0.16f
+            nc.drawLine(tx, slotRect.top + 1.5f, tx, slotRect.top + 1.5f + tLen, tickP)
+            nc.drawLine(tx, slotRect.bottom - 1.5f, tx, slotRect.bottom - 1.5f - tLen, tickP)
         }
 
-        // C. Animated 3D Brass Vernier Clasp
-        val animPct = genreProgress.getOrElse(i) { item.percentage / 100f }.coerceIn(0f, 1f)
-        val claspCx = tickStart + animPct * (tickEnd - tickStart)
-        val claspRect = RectF(claspCx - claspW / 2f, cy - claspH / 2f, claspCx + claspW / 2f, cy + claspH / 2f)
-        nc.drawRoundRect(
-            claspRect, 0.005f * w, 0.005f * w,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // Active Brass Bar Fill inside the walnut slot
+        val fillW = (trackW * animPct.coerceAtLeast(0.06f)).coerceAtMost(trackW)
+        val barInset = trackH * 0.11f
+        val brassRect = RectF(
+            slotRect.left + barInset,
+            slotRect.top + barInset,
+            slotRect.left + fillW - barInset,
+            slotRect.bottom - barInset
+        )
+        if (brassRect.width() > 2f) {
+            val brassPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
                 shader = LinearGradient(
-                    claspRect.left, claspRect.top, claspRect.right, claspRect.bottom,
-                    intArrayOf(Color.rgb(232, 208, 154), Color.rgb(184, 150, 88), Color.rgb(128, 98, 46)),
-                    floatArrayOf(0f, 0.5f, 1f),
+                    brassRect.left, brassRect.top,
+                    brassRect.left, brassRect.bottom,
+                    intArrayOf(
+                        Color.rgb(232, 198, 128),
+                        Color.rgb(194, 150, 74),
+                        Color.rgb(152, 112, 46)
+                    ),
+                    floatArrayOf(0f, 0.55f, 1f),
                     Shader.TileMode.CLAMP
                 )
             }
-        )
-        nc.drawRoundRect(
-            claspRect, 0.005f * w, 0.005f * w,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE; strokeWidth = 0.0015f * w; color = Color.rgb(72, 50, 20)
-            }
-        )
-        nc.drawCircle(claspCx, cy, claspW * 0.16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(92, 66, 28) })
+            nc.drawRoundRect(brassRect, slotCorner * 0.75f, slotCorner * 0.75f, brassPaint)
+        }
 
-        // D. Right Percentage Readout
-        val displayPct = (animPct * 100f).roundToInt()
-        nc.drawText("$displayPct%", 0.852f * w, textBaseY, pctPaint)
+        // Knurled Brass Slider Thumb Knob
+        val knobW = 0.024f * w
+        val knobH = trackH * 1.18f
+        val knobCenterX = (slotRect.left + fillW).coerceIn(slotRect.left + knobW * 0.5f, slotRect.right - knobW * 0.5f)
+        val knobRect = RectF(
+            knobCenterX - knobW * 0.5f,
+            cy - knobH * 0.5f,
+            knobCenterX + knobW * 0.5f,
+            cy + knobH * 0.5f
+        )
+        val knobPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            shader = LinearGradient(
+                knobRect.left, knobRect.top,
+                knobRect.right, knobRect.bottom,
+                intArrayOf(
+                    Color.rgb(245, 216, 150),
+                    Color.rgb(184, 138, 62)
+                ),
+                floatArrayOf(0f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        nc.drawRoundRect(knobRect, knobW * 0.25f, knobW * 0.25f, knobPaint)
+
+        val knobBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 0.002f * w
+            color = Color.rgb(92, 62, 24)
+        }
+        nc.drawRoundRect(knobRect, knobW * 0.25f, knobW * 0.25f, knobBorderPaint)
+        nc.drawCircle(knobCenterX, cy, knobW * 0.16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(92, 66, 28) })
+
+        // Right Percentage Readout (aligned with upper island's right inner margin)
+        val pctPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = serifBold
+            textSize = 0.0195f * h
+            color = if (isSelected) crimsonInk else inkDark
+            textAlign = Paint.Align.RIGHT
+        }
+        val rightText = if (isSelected && item.booksCount > 0) "${item.booksCount} BOOKS ($pctInt%)" else "$pctInt%"
+        nc.drawText(rightText, 0.922f * w, cy + pctPaint.textSize * 0.34f, pctPaint)
     }
 }
 

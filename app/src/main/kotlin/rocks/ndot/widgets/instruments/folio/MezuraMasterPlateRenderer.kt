@@ -7,6 +7,7 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import kotlin.math.*
+import kotlinx.coroutines.launch
 
 object MezuraMasterPlateRenderer {
     @Volatile
@@ -888,54 +889,6 @@ object MezuraMasterPlateRenderer {
         canvas.drawRoundRect(interiorRect, cornerR, cornerR, bgPaint)
     }
 
-    private fun drawObsidianCoverClean(
-        canvas: Canvas,
-        coverBitmap: Bitmap?,
-        dstRect: RectF
-    ) {
-        val w = canvas.width.toFloat()
-        val cornerRadiusPx = 0.008f * w
-
-        if (coverBitmap != null && !coverBitmap.isRecycled) {
-            val srcW = coverBitmap.width.toFloat().coerceAtLeast(1f)
-            val srcH = coverBitmap.height.toFloat().coerceAtLeast(1f)
-            val dstW = dstRect.width()
-            val dstH = dstRect.height()
-
-            // Letterbox / fit cleanly inside dstRect preserving aspect ratio
-            val scale = kotlin.math.min(dstW / srcW, dstH / srcH)
-            val fittedW = srcW * scale
-            val fittedH = srcH * scale
-            val fittedRect = RectF(
-                dstRect.centerX() - fittedW / 2f,
-                dstRect.centerY() - fittedH / 2f,
-                dstRect.centerX() + fittedW / 2f,
-                dstRect.centerY() + fittedH / 2f
-            )
-
-            val save = canvas.save()
-            val clipPath = Path().apply {
-                addRoundRect(fittedRect, cornerRadiusPx, cornerRadiusPx, Path.Direction.CW)
-            }
-            canvas.clipPath(clipPath)
-
-            val matrix = android.graphics.Matrix().apply {
-                postScale(scale, scale)
-                postTranslate(fittedRect.left, fittedRect.top)
-            }
-            val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
-            canvas.drawBitmap(coverBitmap, matrix, bmpPaint)
-            canvas.restoreToCount(save)
-
-            // Subtle warm gold hairline frame
-            val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = (0.0016f * w).coerceAtLeast(1.5f)
-                color = 0x44C89D54
-            }
-            canvas.drawRoundRect(fittedRect, cornerRadiusPx, cornerRadiusPx, borderPaint)
-        }
-    }
 
     private fun draw3DCopperPaperclip(
         c: Canvas,
@@ -1110,128 +1063,299 @@ object MezuraMasterPlateRenderer {
     }
 
     // =========================================================================
-    // 1. ARCHIVAL BRASS & SPLIT-FLAP LEDGER (`style_1.png` @ 2K 1792x2240)
+    // 1. ARCHIVAL BRASS & SPLIT-FLAP LEDGER (`style_1.png`)
     // =========================================================================
-    private fun compositeStyle1(c: Canvas, working: Bitmap, master: Bitmap, w: Float, h: Float, stats: BookCompletionStats, cover: Bitmap?) {
-        // Disabled harsh in-place template sharpening to eradicate halos around text
-        val labelColor = Color.rgb(48, 40, 30)
+    private fun compositeStyle1(
+        c: Canvas,
+        working: Bitmap,
+        master: Bitmap,
+        w: Float,
+        h: Float,
+        stats: BookCompletionStats,
+        cover: Bitmap?
+    ) {
+        val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+        // 1. Book Cover: Fill the exact pre-cut cover slot [0.1052, 0.0984, 0.3868, 0.4094]
+        //    (If using raw ref_01 with baked orange cover, heal [0.088, 0.094, 0.418, 0.422] first
+        //     from clean right-column parchment [0.450, 0.094, 0.780, 0.422] before drawing cover.)
+        val coverSlot = RectF(0.1052f * w, 0.0984f * h, 0.3868f * w, 0.4094f * h)
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(60, 25, 18, 10)
+            maskFilter = BlurMaskFilter((0.008f * w).coerceAtLeast(4f), BlurMaskFilter.Blur.NORMAL)
+        }
+        c.drawRoundRect(
+            RectF(
+                coverSlot.left - 0.006f * w,
+                coverSlot.top + 0.005f * h,
+                coverSlot.right,
+                coverSlot.bottom + 0.008f * h
+            ),
+            4f, 4f, shadowPaint
+        )
+        if (cover != null) {
+            drawCenterCropBitmap(c, cover, coverSlot, 0f)
+        }
+
+        // 2. Top "BOOK COMPLETED" Header & Flanking Rules:
+        //    DO NOT ERASE OR REDRAW y = 0.00..0.088! "BOOK COMPLETED", both left/right rules,
+        //    and the brass stud are already printed cleanly on style_1.png.
+
+        // 3. Right Metadata Column: Larger Title, Brass Bar, Larger Author, Dates & Stars
+        //    (Zero erase calls here so no faded streaks ever appear behind MY RATING or stars!)
         val serifBold = Typeface.create(Typeface.SERIF, Typeface.BOLD)
         val serifReg = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
-        val sansBold = Typeface.create("sans-serif-condensed", Typeface.BOLD)
-        val grotesqueBold = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
 
-        // 1. Top "BOOK COMPLETED" Header
-        eraseCoonsSmooth(working, 0.315f, 0.044f, 0.685f, 0.068f)
-        drawPlateText(c, w, h, "BOOK COMPLETED", 0.500f, 0.056f, 0.0145f, labelColor, serifBold, Paint.Align.CENTER, 0.28f)
-
-        // 2. Erase entire old orange book [0.082, 0.088, 0.426, 0.420] to clean parchment
-        eraseCoonsSmooth(working, 0.082f, 0.088f, 0.426f, 0.420f)
-
-        // 3. Render sleek, properly-proportioned portrait hardcover (20% more compact so it never looks oversized!)
-        val x1 = 0.118f * w; val y1 = 0.116f * h; val x2 = 0.382f * w; val y2 = 0.390f * h
-        val spineW = 0.020f * w
-        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(90, 22, 16, 10)
-            maskFilter = BlurMaskFilter(0.008f * w, BlurMaskFilter.Blur.NORMAL)
-        }
-        c.drawRoundRect(RectF(x1 - 0.005f * w, y1 + 0.006f * h, x2 + 0.004f * w, y2 + 0.008f * h), 8f, 8f, shadowPaint)
-        if (cover != null) {
-            val sampleCol = cover.getPixel((cover.width * 0.08f).toInt().coerceAtLeast(0), cover.height / 2)
-            val sr = Color.red(sampleCol); val sg = Color.green(sampleCol); val sb = Color.blue(sampleCol)
-            c.drawRect(x1, y1, x1 + spineW, y2, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(
-                    x1, y1, x1 + spineW, y1,
-                    intArrayOf(
-                        Color.rgb((sr * 0.45f).toInt(), (sg * 0.45f).toInt(), (sb * 0.45f).toInt()),
-                        Color.rgb((sr * 0.88f).toInt(), (sg * 0.88f).toInt(), (sb * 0.88f).toInt()),
-                        Color.rgb((sr * 0.60f).toInt(), (sg * 0.60f).toInt(), (sb * 0.60f).toInt())
-                    ),
-                    floatArrayOf(0f, 0.55f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-            })
-            drawCenterCropBitmap(c, cover, RectF(x1 + spineW, y1, x2, y2), 0f)
-            c.drawLine(x1 + spineW, y1, x1 + spineW, y2, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb(140, 15, 12, 10); strokeWidth = (0.002f * w).coerceAtLeast(2f)
-            })
-        }
-
-
-
-        // 4. Erase right metadata block (keep "MY RATING" at y=0.338 and native stars at y=0.379 intact!)
-        eraseCoonsSmooth(working, 0.440f, 0.100f, 0.935f, 0.320f)
-        val bottomTitleY = drawPlateAutoFitTitle(c, w, h, stats.bookTitle, 0.452f, 0.122f, 0.460f, 0.031f, Color.rgb(26, 23, 20), serifBold, maxLines = 2)
-        val ruleY = (bottomTitleY + 0.014f).coerceAtMost(0.215f)
-        c.drawRect(0.452f * w, ruleY * h, 0.535f * w, (ruleY + 0.0032f) * h, Paint().apply { color = Color.rgb(156, 123, 62) })
-        drawPlateText(c, w, h, stats.authorName, 0.452f, ruleY + 0.034f, 0.024f, Color.rgb(51, 44, 35), serifReg)
-        drawPlateText(c, w, h, "${stats.startDateFormatted}  —  ${stats.endDateFormatted}", 0.452f, ruleY + 0.076f, 0.016f, Color.rgb(51, 44, 35), Typeface.DEFAULT_BOLD)
-
-        // 5. "MY RATING" Label above stars
-        eraseCoonsSmooth(working, 0.445f, 0.322f, 0.650f, 0.352f)
-        drawPlateText(c, w, h, "MY RATING", 0.452f, 0.338f, 0.0125f, labelColor, sansBold, Paint.Align.LEFT, 0.22f)
-
-        // 6. Guaranteed Crisp 5-Star Vector Rendering
-        eraseCoonsSmooth(working, 0.445f, 0.352f, 0.715f, 0.404f)
-        drawCrispFiveStarsLeftToRight(
-            c, w, h, stats.starRating,
-            slotCentersX = floatArrayOf(0.474f, 0.525f, 0.576f, 0.627f, 0.678f),
-            centerYNorm = 0.379f, outerRadiusNormW = 0.019f,
-            litFillColor = Color.rgb(184, 138, 58),
-            unlitFillColor = Color.rgb(214, 202, 180),
-            unlitStrokeColor = Color.rgb(142, 114, 62)
+        val bottomTitleY = drawPlateAutoFitTitle(
+            c = c, w = w, h = h,
+            title = stats.bookTitle,
+            xNorm = 0.452f,
+            topYNorm = 0.122f,
+            maxWidthNorm = 0.455f,
+            initialSizeNormH = 0.038f,
+            color = Color.rgb(26, 23, 20),
+            typeface = serifBold,
+            maxLines = 2
+        )
+        val ruleY = (bottomTitleY + 0.014f).coerceAtMost(0.222f)
+        c.drawRect(
+            0.452f * w,
+            ruleY * h,
+            0.536f * w,
+            (ruleY + 0.0038f) * h,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(156, 123, 62) }
+        )
+        drawPlateText(
+            c, w, h,
+            text = stats.authorName,
+            xNorm = 0.452f,
+            yNorm = ruleY + 0.036f,
+            sizeNormH = 0.025f,
+            color = Color.rgb(45, 38, 32),
+            typeface = serifReg
+        )
+        drawPlateText(
+            c, w, h,
+            text = "${stats.startDateFormatted}  —  ${stats.endDateFormatted}",
+            xNorm = 0.452f,
+            yNorm = ruleY + 0.080f,
+            sizeNormH = 0.0155f,
+            color = Color.rgb(45, 38, 32),
+            typeface = Typeface.DEFAULT_BOLD
         )
 
-        // 7. Split-Flap 3-Digit Counter
-        val digits = stats.totalPagesRead.coerceIn(0, 999).toString().padStart(3, '0')
-        val flapL = floatArrayOf(0.142f, 0.240f, 0.336f)
-        val flapR = floatArrayOf(0.238f, 0.334f, 0.418f)
-        for (i in 0..2) {
-            val fl = flapL[i]; val fr = flapR[i]
-            val ft = 0.482f; val fb = 0.570f; val fmid = (ft + fb) / 2f
-            c.drawRect(fl * w, ft * h, fr * w, fmid * h, Paint().apply { color = Color.rgb(34, 31, 27) })
-            c.drawRect(fl * w, fmid * h, fr * w, fb * h, Paint().apply { color = Color.rgb(25, 23, 20) })
-            drawPlateText(c, w, h, digits[i].toString(), (fl + fr) / 2f, fmid, 0.064f, Color.rgb(236, 226, 208), Typeface.DEFAULT_BOLD, Paint.Align.CENTER)
-            c.drawLine(fl * w, fmid * h, fr * w, fmid * h, Paint().apply { color = Color.rgb(12, 11, 10); strokeWidth = 0.0035f * h })
+        // 5 Faceted Brass Stars below the existing "MY RATING" label (y = 0.379f)
+        for (i in 0 until 5) {
+            drawArchivalFacetedStar(
+                canvas = c,
+                cx = (0.474f + i * 0.052f) * w,
+                cy = 0.379f * h,
+                outerR = 0.0185f * h,
+                lit = i < stats.starRating.coerceIn(0, 5)
+            )
         }
 
-        // 8. Metric Values & Subtitles
-        eraseCoonsSmooth(working, 0.210f, 0.592f, 0.420f, 0.622f)
-        drawPlateText(c, w, h, "PAGES READ", 0.218f, 0.608f, 0.0125f, labelColor, sansBold, Paint.Align.LEFT, 0.20f)
+        // 4. Split-Flap 3-Digit Counter:
+        //    Inner black cavity on style_1.png is [0.136f..0.395f].
+        //    Flaps MUST stop at 0.394f so they NEVER cover the right brass bezel [0.395f..0.428f]!
+        //    DO NOT erase or redraw the open-book icon or "PAGES READ" below the counter.
+        val digits = stats.totalPagesRead.coerceIn(0, 999).toString().padStart(3, '0')
+        val flapL = floatArrayOf(0.139f, 0.226f, 0.313f)
+        val flapR = floatArrayOf(0.221f, 0.308f, 0.394f)
+        for (i in 0..2) {
+            val fl = flapL[i]
+            val fr = flapR[i]
+            val ft = 0.482f
+            val fb = 0.578f
+            val fmid = (ft + fb) / 2f
+            c.drawRect(fl * w, ft * h, fr * w, fmid * h, Paint().apply { color = Color.rgb(32, 29, 26) })
+            c.drawRect(fl * w, fmid * h, fr * w, fb * h, Paint().apply { color = Color.rgb(24, 22, 19) })
+            drawPlateText(
+                c, w, h,
+                text = digits[i].toString(),
+                xNorm = (fl + fr) / 2f,
+                yNorm = fmid,
+                sizeNormH = 0.062f,
+                color = Color.rgb(238, 228, 212),
+                typeface = Typeface.DEFAULT_BOLD,
+                align = Paint.Align.CENTER
+            )
+            c.drawLine(
+                fl * w, fmid * h, fr * w, fmid * h,
+                Paint().apply {
+                    color = Color.rgb(12, 11, 10)
+                    strokeWidth = (0.003f * h).coerceAtLeast(1.5f)
+                }
+            )
+        }
 
-        eraseCoonsSmooth(working, 0.628f, 0.556f, 0.935f, 0.586f)
-        drawPlateText(c, w, h, "TOTAL READING TIME", 0.632f, 0.570f, 0.0120f, labelColor, sansBold, Paint.Align.LEFT, 0.18f)
-        drawPlateText(c, w, h, stats.totalReadingTimeFormatted, 0.632f, 0.520f, 0.036f, Color.rgb(28, 25, 21), grotesqueBold)
+        // 5. Total Reading Time: Strictly HOURS and MINUTES ONLY (NO seconds "00s"!)
+        //    Starts at x = 0.652f (clean gap after the gauge which ends at 0.628f).
+        //    DO NOT call eraseDarkInkFast/eraseCoonsSmooth near the gauge!
+        val totalMins = stats.totalReadingMinutes.coerceAtLeast(0)
+        val hrsStr = "%02d".format(totalMins / 60)
+        val minsStr = "%02d".format(totalMins % 60)
+        drawArchivalHoursMinutesOnly(
+            canvas = c,
+            startX = 0.652f * w,
+            baselineY = 0.536f * h,
+            hoursStr = hrsStr,
+            minsStr = minsStr,
+            typeface = serifBold,
+            numSizePx = 0.045f * h,
+            unitSizePx = 0.026f * h,
+            color = Color.rgb(26, 23, 20)
+        )
 
-        eraseCoonsSmooth(working, 0.180f, 0.645f, 0.425f, 0.732f)
-        drawPlateText(c, w, h, stats.averagePagesPerHour.toString(), 0.200f, 0.692f, 0.050f, Color.rgb(28, 25, 21), grotesqueBold)
+        // 6. Middle & Bottom Stat Numbers (33, 42, 109):
+        //    DO NOT erase or redraw the static labels ("AVERAGE PAGES / HOUR" at y=0.732f..0.749f,
+        //    "MOST PAGES IN ONE DAY" at y=0.736f..0.748f, "MOST MINUTES IN ONE DAY" at y=0.857f..0.882f).
+        //    Draw ONLY the numbers at yNorm = 0.692f (Row 2) and yNorm = 0.820f (Row 3) so there is
+        //    clean, generous vertical breathing room above the static labels!
+        drawPlateText(
+            c, w, h,
+            text = stats.averagePagesPerHour.toString(),
+            xNorm = 0.194f,
+            yNorm = 0.692f,
+            sizeNormH = 0.048f,
+            color = Color.rgb(26, 23, 20),
+            typeface = serifBold,
+            align = Paint.Align.LEFT
+        )
+        drawPlateText(
+            c, w, h,
+            text = stats.mostPagesInOneDay.toString(),
+            xNorm = 0.654f,
+            yNorm = 0.692f,
+            sizeNormH = 0.048f,
+            color = Color.rgb(26, 23, 20),
+            typeface = serifBold,
+            align = Paint.Align.LEFT
+        )
+        drawPlateText(
+            c, w, h,
+            text = stats.mostMinutesInOneDay.toString(),
+            xNorm = 0.194f,
+            yNorm = 0.820f,
+            sizeNormH = 0.048f,
+            color = Color.rgb(26, 23, 20),
+            typeface = serifBold,
+            align = Paint.Align.LEFT
+        )
 
-        eraseCoonsSmooth(working, 0.185f, 0.730f, 0.480f, 0.758f)
-        drawPlateText(c, w, h, "AVERAGE PAGES / HOUR", 0.198f, 0.744f, 0.0115f, labelColor, sansBold, Paint.Align.LEFT, 0.14f)
+        // 7. Longest Streak Capsule ("1 DAY"):
+        //    The capsule outline, flame icon, and "LONGEST STREAK" label are already on style_1.png.
+        //    Draw ONLY the streak count ("1 DAY") centered above "LONGEST STREAK" at (0.768f, 0.824f).
+        val streakText = "${stats.longestStreakDays} ${if (stats.longestStreakDays == 1) "DAY" else "DAYS"}"
+        drawPlateText(
+            c, w, h,
+            text = streakText,
+            xNorm = 0.768f,
+            yNorm = 0.824f,
+            sizeNormH = 0.024f,
+            color = Color.rgb(26, 23, 20),
+            typeface = Typeface.DEFAULT_BOLD,
+            align = Paint.Align.CENTER
+        )
 
-        eraseCoonsSmooth(working, 0.625f, 0.645f, 0.855f, 0.732f)
-        drawPlateText(c, w, h, stats.mostPagesInOneDay.toString(), 0.640f, 0.692f, 0.050f, Color.rgb(28, 25, 21), grotesqueBold)
+        // 8. Bottom Footer ("MEZURA · READING RECORD"):
+        //    Keep the baked left fluted brass cap [0.078..0.173], left rule [0.175..0.310],
+        //    right rule [0.690..0.822], and right fluted brass cap [0.824..0.918] 100% untouched!
+        //    Copy pure blank parchment from BELOW the footer [0.310..0.690, 0.956..0.980]
+        //    onto the center text gap [0.310..0.690, 0.924..0.948] so ZERO line passes under the text.
+        val srcCleanFooter = Rect(
+            (0.310f * w).toInt(),
+            (0.956f * h).toInt(),
+            (0.690f * w).toInt(),
+            (0.980f * h).toInt()
+        )
+        val dstCleanFooter = RectF(0.310f * w, 0.924f * h, 0.690f * w, 0.948f * h)
+        c.drawBitmap(master, srcCleanFooter, dstCleanFooter, bitmapPaint)
 
-        eraseCoonsSmooth(working, 0.628f, 0.730f, 0.935f, 0.758f)
-        drawPlateText(c, w, h, "MOST PAGES IN ONE DAY", 0.640f, 0.744f, 0.0115f, labelColor, sansBold, Paint.Align.LEFT, 0.14f)
-
-        eraseCoonsSmooth(working, 0.180f, 0.775f, 0.425f, 0.860f)
-        drawPlateText(c, w, h, stats.mostMinutesInOneDay.toString(), 0.200f, 0.822f, 0.050f, Color.rgb(28, 25, 21), grotesqueBold)
-
-        eraseCoonsSmooth(working, 0.185f, 0.858f, 0.490f, 0.886f)
-        drawPlateText(c, w, h, "MOST MINUTES IN ONE DAY", 0.198f, 0.872f, 0.0115f, labelColor, sansBold, Paint.Align.LEFT, 0.14f)
-
-        eraseCoonsSmooth(working, 0.665f, 0.796f, 0.840f, 0.850f)
-        val streakLbl = "${stats.longestStreakDays} ${if (stats.longestStreakDays == 1) "DAY" else "DAYS"}"
-        drawPlateText(c, w, h, streakLbl, 0.678f, 0.822f, 0.024f, Color.rgb(28, 25, 21), grotesqueBold)
-
-        eraseCoonsSmooth(working, 0.665f, 0.848f, 0.865f, 0.872f)
-        drawPlateText(c, w, h, "LONGEST STREAK", 0.678f, 0.860f, 0.0105f, labelColor, sansBold, Paint.Align.LEFT, 0.14f)
-
-        eraseCoonsSmooth(working, 0.305f, 0.916f, 0.695f, 0.952f)
-        drawPlateText(c, w, h, "MEZURA  ·  READING RECORD", 0.500f, 0.933f, 0.0135f, Color.rgb(51, 43, 33), serifBold, Paint.Align.CENTER, 0.16f)
+        drawPlateText(
+            c, w, h,
+            text = "MEZURA  ·  READING RECORD",
+            xNorm = 0.500f,
+            yNorm = 0.9362f,
+            sizeNormH = 0.0125f,
+            color = Color.rgb(45, 38, 30),
+            typeface = serifReg,
+            align = Paint.Align.CENTER,
+            letterSpacingEm = 0.22f
+        )
     }
 
-    // =========================================================================
+    private fun drawArchivalHoursMinutesOnly(
+        canvas: Canvas,
+        startX: Float,
+        baselineY: Float,
+        hoursStr: String,
+        minsStr: String,
+        typeface: Typeface,
+        numSizePx: Float,
+        unitSizePx: Float,
+        color: Int
+    ) {
+        val numPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.typeface = typeface
+            this.textSize = numSizePx
+            this.color = color
+        }
+        val unitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.typeface = typeface
+            this.textSize = unitSizePx
+            this.color = color
+        }
+        var curX = startX
+        canvas.drawText(hoursStr, curX, baselineY, numPaint)
+        curX += numPaint.measureText(hoursStr) + 0.06f * numSizePx
+        canvas.drawText("h", curX, baselineY, unitPaint)
+        curX += unitPaint.measureText("h") + 0.24f * numSizePx
+        canvas.drawText(minsStr, curX, baselineY, numPaint)
+        curX += numPaint.measureText(minsStr) + 0.06f * numSizePx
+        canvas.drawText("m", curX, baselineY, unitPaint)
+    }
+
+    private fun drawArchivalFacetedStar(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        outerR: Float,
+        lit: Boolean
+    ) {
+        val innerR = outerR * 0.42f
+        val pts = Array(10) { i ->
+            val angle = Math.toRadians(-90.0 + i * 36.0)
+            val r = if (i % 2 == 0) outerR else innerR
+            PointF((cx + r * kotlin.math.cos(angle)).toFloat(), (cy + r * kotlin.math.sin(angle)).toFloat())
+        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        if (!lit) {
+            val path = Path().apply {
+                moveTo(pts[0].x, pts[0].y)
+                for (i in 1 until 10) lineTo(pts[i].x, pts[i].y)
+                close()
+            }
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = (outerR * 0.11f).coerceAtLeast(1.5f)
+            paint.color = Color.rgb(156, 124, 64)
+            canvas.drawPath(path, paint)
+            return
+        }
+        for (i in 0 until 10) {
+            val p1 = pts[i]
+            val p2 = pts[(i + 1) % 10]
+            val facet = Path().apply {
+                moveTo(cx, cy)
+                lineTo(p1.x, p1.y)
+                lineTo(p2.x, p2.y)
+                close()
+            }
+            paint.style = Paint.Style.FILL
+            paint.color = if (i % 2 == 0) Color.rgb(218, 176, 88) else Color.rgb(154, 112, 42)
+            canvas.drawPath(facet, paint)
+        }
+    }
     // 2. PERFORATED GUNMETAL & DOT-MATRIX LED PINBOARD (`style_2.jpg`)
     // =========================================================================
     private fun compositeStyle2(c: Canvas, working: Bitmap, master: Bitmap, w: Float, h: Float, stats: BookCompletionStats, cover: Bitmap?) {
@@ -1296,8 +1420,6 @@ object MezuraMasterPlateRenderer {
         drawPlateText(c, w, h, "DIGITAL", 0.055f, 0.981f, 0.010f, Color.rgb(134, 142, 154), Typeface.MONOSPACE, Paint.Align.LEFT, 0.08f)
         drawPlateText(c, w, h, "RECORDED ON MEZURA", 0.500f, 0.976f, 0.014f, Color.rgb(134, 142, 154), Typeface.MONOSPACE, Paint.Align.CENTER, 0.14f)
     }
-
-    // =========================================================================
     // 3. WARM PARCHMENT CLIPBOARD & CHARCOAL BENTO (`style_3.jpg`)
     // =========================================================================
     private fun compositeStyle3(c: Canvas, working: Bitmap, master: Bitmap, w: Float, h: Float, stats: BookCompletionStats, cover: Bitmap?) {
@@ -1447,18 +1569,21 @@ object MezuraMasterPlateRenderer {
     // 5. DRAFTING BLUEPRINT & ARCHIVAL ENGINEERING LEDGER (`style_5.jpg`)
     // =========================================================================
     private fun compositeStyle5(c: Canvas, working: Bitmap, master: Bitmap, w: Float, h: Float, stats: BookCompletionStats, cover: Bitmap?) {
-        // 1. Wipe 100% of the old orange book and old paperclip
-        eraseCoonsSmooth(working, 0.072f, 0.052f, 0.340f, 0.334f)
-        eraseCoonsSmooth(working, 0.108f, 0.035f, 0.178f, 0.055f)
-        // 2. Redraw top card border line across x = 0.105f..0.180f at y = 0.0462f * h
-        c.drawLine(0.105f * w, 0.0462f * h, 0.180f * w, 0.0462f * h, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(69, 65, 58); strokeWidth = (0.0018f * w).coerceAtLeast(2f)
-        })
-        // 3. Draw coverBitmap at [0.084f, 0.065f, 0.330f, 0.324f]
+        val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        // 1. Heal the top border line smudge [0.095..0.205, 0.043..0.056] from the clean border+grid to its right [0.210..0.320, 0.043..0.056]
+        val srcTopBorder = Rect((0.210f * w).toInt(), (0.043f * h).toInt(), (0.320f * w).toInt(), (0.056f * h).toInt())
+        val dstTopBorder = RectF(0.095f * w, 0.043f * h, 0.205f * w, 0.056f * h)
+        c.drawBitmap(master, srcTopBorder, dstTopBorder, bitmapPaint)
+
+        // 2. Heal the bottom edge strip below the cover [0.080..0.335, 0.320..0.330] from clean grid [0.080..0.335, 0.330..0.340]
+        val srcBotGrid = Rect((0.080f * w).toInt(), (0.330f * h).toInt(), (0.335f * w).toInt(), (0.340f * h).toInt())
+        val dstBotGrid = RectF(0.080f * w, 0.320f * h, 0.335f * w, 0.330f * h)
+        c.drawBitmap(master, srcBotGrid, dstBotGrid, bitmapPaint)
+
+        // 3. Draw the cover edge-to-edge into the exact pre-cut slot [0.0920f, 0.0556f, 0.3242f, 0.3210f] with vector copper paperclip
         if (cover != null) {
-            drawCenterCropBitmap(c, cover, RectF(0.084f * w, 0.065f * h, 0.330f * w, 0.324f * h), 0.006f * w)
+            drawCenterCropBitmap(c, cover, RectF(0.0920f * w, 0.0556f * h, 0.3242f * w, 0.3210f * h), 0.006f * w)
         }
-        // 4. Call pure vector 3D copper paperclip repositioned to top-center of cover cx = 0.207f * w
         draw3DCopperPaperclip(c, cx = 0.207f * w, topY = 0.038f * h, clipW = 0.034f * w, clipH = 0.066f * h, tiltDeg = -4f)
 
         // 3. Hero Text & Native Left-to-Right Stars
@@ -1527,60 +1652,176 @@ object MezuraMasterPlateRenderer {
     }
 
     // =========================================================================
-    // 6. SMOKED FROSTED GLASSMORPHISM & AMBER BOKEH (`style_6.jpg`)
+    // 6. SMOKED FROSTED GLASSMORPHISM & AMBER BOKEH (`style_6.png` / `style_6.jpg`)
     // =========================================================================
-    private fun compositeStyle6(c: Canvas, working: Bitmap, master: Bitmap, w: Float, h: Float, stats: BookCompletionStats, cover: Bitmap?) {
-        // Pre-fill [0.078f, 0.058f, 0.335f, 0.330f] with dark smoked glass to eliminate thin orange line
-        c.drawRoundRect(
-            RectF(0.078f * w, 0.058f * h, 0.335f * w, 0.330f * h),
-            0.010f * w, 0.010f * w,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(34, 32, 36) }
-        )
+    private fun compositeStyle6(
+        c: Canvas,
+        working: Bitmap,
+        master: Bitmap,
+        w: Float,
+        h: Float,
+        stats: BookCompletionStats,
+        cover: Bitmap?
+    ) {
+        // 1. Unify the interior of the EXISTING top glass card [0.0547..0.9453, 0.0417..0.3475]
+        //    so the cover and text sit on ONE continuous smoked-glass platform while keeping
+        //    the card's original 1.5px white border [0.0519..0.9475, 0.0388..0.3504] 100% intact.
+        unifyTopGlassCardInterior(working)
+
+        // 2. Book Cover: Fill the exact pre-cut slot [0.0926f, 0.0558f, 0.3237f, 0.3208f]
+        //    (px = 83, 67, 290, 385 on 896x1200) using center-crop so zero black bar shows at top/bottom.
         if (cover != null) {
-            drawCenterCropBitmap(c, cover, RectF(0.082f * w, 0.060f * h, 0.333f * w, 0.328f * h), 0.010f * w)
+            val coverDst = RectF(0.0926f * w, 0.0558f * h, 0.3237f * w, 0.3208f * h)
+            drawCenterCropBitmap(c, cover, coverDst, 0.011f * w)
         }
-        // Single unified pass erasing full header zone [0.370, 0.045, 0.908, 0.332]
-        eraseHeaderFromCleanTopAndRight(working, 0.370f, 0.045f, 0.908f, 0.332f)
-        drawPlateText(c, w, h, "I'VE READ", 0.388f, 0.075f, 0.016f, Color.rgb(200, 204, 210), Typeface.create(Typeface.SERIF, Typeface.ITALIC), letterSpacingEm = 0.04f)
-        val bottomY = drawPlateAutoFitTitle(c, w, h, stats.bookTitle, 0.388f, 0.110f, 0.510f, 0.031f, Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2)
-        drawPlateText(c, w, h, stats.authorName, 0.388f, (bottomY + 0.024f).coerceAtMost(0.205f), 0.024f, Color.rgb(245, 155, 56), Typeface.DEFAULT_BOLD)
-        drawPlateText(c, w, h, "${stats.startDateFormatted} - ${stats.endDateFormatted}", 0.388f, 0.242f, 0.018f, Color.rgb(234, 236, 239), Typeface.DEFAULT_BOLD)
-        drawPlateText(c, w, h, "Gave it", 0.388f, 0.294f, 0.019f, Color.rgb(200, 204, 210), Typeface.create(Typeface.SERIF, Typeface.ITALIC))
 
-        drawCrispFiveStarsLeftToRight(
-            c, w, h, stats.starRating,
-            slotCentersX = floatArrayOf(0.551f, 0.605f, 0.659f, 0.713f, 0.767f),
-            centerYNorm = 0.292f,
-            outerRadiusNormW = 0.018f,
-            litFillColor = Color.rgb(255, 178, 56),
-            unlitFillColor = Color.argb(40, 255, 255, 255),
-            unlitStrokeColor = Color.argb(90, 255, 255, 255)
+        // 3. Header Metadata on the unified glass platform
+        val serifItalic = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
+        drawPlateText(
+            c, w, h,
+            text = "I’VE READ",
+            xNorm = 0.388f,
+            yNorm = 0.088f,
+            sizeNormH = 0.022f,
+            color = Color.rgb(190, 194, 202),
+            typeface = serifItalic
         )
 
+        val bottomY = drawPlateAutoFitTitle(
+            c = c, w = w, h = h,
+            title = stats.bookTitle,
+            xNorm = 0.388f,
+            topYNorm = 0.118f,
+            maxWidthNorm = 0.510f,
+            initialSizeNormH = 0.034f,
+            color = Color.WHITE,
+            typeface = Typeface.DEFAULT_BOLD,
+            maxLines = 2
+        )
+        drawPlateText(
+            c, w, h,
+            text = stats.authorName,
+            xNorm = 0.388f,
+            yNorm = (bottomY + 0.024f).coerceAtMost(0.205f),
+            sizeNormH = 0.025f,
+            color = Color.rgb(245, 155, 56),
+            typeface = Typeface.DEFAULT_BOLD
+        )
+        drawPlateText(
+            c, w, h,
+            text = "${stats.startDateFormatted} - ${stats.endDateFormatted}",
+            xNorm = 0.388f,
+            yNorm = 0.244f,
+            sizeNormH = 0.0185f,
+            color = Color.rgb(234, 236, 239),
+            typeface = Typeface.DEFAULT_BOLD
+        )
+
+        drawPlateText(
+            c, w, h,
+            text = "Gave it",
+            xNorm = 0.388f,
+            yNorm = 0.298f,
+            sizeNormH = 0.024f,
+            color = Color.rgb(190, 194, 202),
+            typeface = serifItalic
+        )
+        for (i in 0 until 5) {
+            drawArchivalFacetedStar(
+                canvas = c,
+                cx = (0.551f + i * 0.058f) * w,
+                cy = 0.298f * h,
+                outerR = 0.0155f * h,
+                lit = i < stats.starRating.coerceIn(0, 5)
+            )
+        }
+
+        // 4. Lower 5 Bento Stat Tiles (Erase baked demo numbers first, then draw live values with NO seconds!)
+        val totalMins = stats.totalReadingMinutes.coerceAtLeast(0)
+        val timeNoSeconds = "%02dh %02dm".format(totalMins / 60, totalMins % 60)
+
+        // Tile 1: PAGES READ (erases baked "208")
         eraseCoonsSmooth(working, 0.072f, 0.392f, 0.318f, 0.482f)
         drawPlateText(c, w, h, stats.totalPagesRead.toString(), 0.086f, 0.436f, 0.060f, Color.WHITE, Typeface.DEFAULT_BOLD)
 
+        // Tile 2: TOTAL READING TIME (erases baked "07h 37m 45s")
         eraseCoonsSmooth(working, 0.532f, 0.392f, 0.935f, 0.478f)
-        drawPlateText(c, w, h, stats.totalReadingTimeFormatted, 0.545f, 0.438f, 0.038f, Color.rgb(255, 155, 40), Typeface.DEFAULT_BOLD)
+        drawPlateText(c, w, h, timeNoSeconds, 0.545f, 0.438f, 0.038f, Color.rgb(255, 155, 40), Typeface.DEFAULT_BOLD)
 
+        // Tile 3: AVERAGE SPEED pages/h (erases baked "27")
         eraseCoonsSmooth(working, 0.072f, 0.580f, 0.245f, 0.682f)
         drawPlateText(c, w, h, stats.averagePagesPerHour.toString(), 0.086f, 0.632f, 0.060f, Color.WHITE, Typeface.DEFAULT_BOLD)
 
+        // Tile 4: MAX PAGES/DAY (erases baked "43")
         eraseCoonsSmooth(working, 0.532f, 0.580f, 0.758f, 0.678f)
         drawPlateText(c, w, h, stats.mostPagesInOneDay.toString(), 0.545f, 0.628f, 0.060f, Color.WHITE, Typeface.DEFAULT_BOLD)
 
+        // Tile 5: MAX MINS/DAY (erases baked "97")
         eraseCoonsSmooth(working, 0.072f, 0.768f, 0.325f, 0.872f)
         drawPlateText(c, w, h, stats.mostMinutesInOneDay.toString(), 0.086f, 0.820f, 0.060f, Color.WHITE, Typeface.DEFAULT_BOLD)
 
+        // Tile 6: Consecutive Streak Award (erases baked "1 DAY")
         eraseCoonsSmooth(working, 0.742f, 0.772f, 0.925f, 0.842f)
         val streakLbl = "${stats.longestStreakDays} ${if (stats.longestStreakDays == 1) "DAY" else "DAYS"}"
-        drawPlateText(c, w, h, streakLbl, 0.836f, 0.808f, 0.034f, Color.rgb(255, 158, 44), Typeface.DEFAULT_BOLD, Paint.Align.CENTER)
+        drawPlateText(c, w, h, streakLbl, 0.836f, 0.808f, 0.036f, Color.rgb(255, 158, 44), Typeface.DEFAULT_BOLD, Paint.Align.CENTER)
 
+        // Footer: Mezura wordmark
         eraseCoonsSmooth(working, 0.400f, 0.938f, 0.600f, 0.985f)
         drawPlateText(c, w, h, "Mezura", 0.500f, 0.962f, 0.026f, Color.rgb(216, 220, 230), Typeface.DEFAULT_BOLD, Paint.Align.CENTER)
     }
 
-    // =========================================================================
+    /**
+     * Unifies the interior of the existing top glass card [0.055..0.945, 0.042..0.347]
+     * by propagating the clean smoked-glass row color from the right side [0.88..0.92]
+     * across the card interior (leaving the existing 1.5px white card border untouched).
+     */
+    private fun unifyTopGlassCardInterior(bitmap: Bitmap) {
+        val w = bitmap.width
+        val h = bitmap.height
+        val yStart = (0.042f * h).toInt().coerceIn(2, h - 4)
+        val yEnd = (0.347f * h).toInt().coerceIn(yStart + 1, h - 2)
+        val xLeftBase = (0.055f * w).toInt().coerceIn(2, w - 4)
+        val xRightBase = (0.945f * w).toInt().coerceIn(xLeftBase + 1, w - 2)
+        val cornerR = (0.027f * w).toInt().coerceAtLeast(4)
+        val cyTop = yStart + cornerR
+        val cyBot = yEnd - cornerR
+        val sampleX1 = (0.880f * w).toInt().coerceIn(0, w - 2)
+        val sampleX2 = (0.925f * w).toInt().coerceIn(sampleX1 + 1, w - 1)
+        val rnd = java.util.Random(42L)
+
+        for (y in yStart until yEnd) {
+            var rSum = 0; var gSum = 0; var bSum = 0; var cnt = 0
+            for (sx in sampleX1..sampleX2 step 2) {
+                val p = bitmap.getPixel(sx, y)
+                rSum += Color.red(p); gSum += Color.green(p); bSum += Color.blue(p)
+                cnt++
+            }
+            val baseR = if (cnt > 0) rSum / cnt else 47
+            val baseG = if (cnt > 0) gSum / cnt else 45
+            val baseB = if (cnt > 0) bSum / cnt else 50
+
+            val dxCorner = when {
+                y < cyTop -> {
+                    val dy = (cyTop - y).toDouble()
+                    (cornerR - kotlin.math.sqrt(kotlin.math.max(0.0, (cornerR * cornerR - dy * dy)))).toInt()
+                }
+                y > cyBot -> {
+                    val dy = (y - cyBot).toDouble()
+                    (cornerR - kotlin.math.sqrt(kotlin.math.max(0.0, (cornerR * cornerR - dy * dy)))).toInt()
+                }
+                else -> 0
+            }
+            val xl = (xLeftBase + dxCorner).coerceIn(0, w - 1)
+            val xr = (xRightBase - dxCorner).coerceIn(xl, w - 1)
+            for (x in xl until xr) {
+                val n = (rnd.nextGaussian() * 0.8).toInt()
+                val cr = (baseR + n).coerceIn(0, 255)
+                val cg = (baseG + n).coerceIn(0, 255)
+                val cb = (baseB + n).coerceIn(0, 255)
+                bitmap.setPixel(x, y, Color.argb(255, cr, cg, cb))
+            }
+        }
+    }
     // 7. BOTANICAL & TOPOGRAPHICAL FIELD SURVEY ATLAS (`style_7.jpg`)
     // =========================================================================
     private fun compositeStyle7(c: Canvas, working: Bitmap, master: Bitmap, w: Float, h: Float, stats: BookCompletionStats, cover: Bitmap?) {
@@ -1639,66 +1880,90 @@ object MezuraMasterPlateRenderer {
     }
 
     // =========================================================================
-    // 8. MINIMALIST OBSIDIAN & WARM AMBER EDITORIAL POSTER (`style_8.png`)
+    // 7 (Style 8). MINIMALIST OBSIDIAN EDITORIAL (`style_8.png`, 1080 x 1440)
     // =========================================================================
-    private fun compositeStyle8(c: Canvas, working: Bitmap, master: Bitmap, w: Float, h: Float, stats: BookCompletionStats, cover: Bitmap?) {
-        // 1. Erase demo cover and dark box by interpolating vertically across x=0.045..0.450, y=0.085..0.520
-        eraseVertSmooth(working, 0.045f, 0.085f, 0.450f, 0.520f)
-
-        // 2. Place book cover in NormRect(0.054f, 0.099f, 0.437f, 0.505f) letterboxed/fitted without distortion
-        val obsidianCoverRect = RectF(0.054f * w, 0.099f * h, 0.437f * w, 0.505f * h)
-        drawObsidianCoverClean(c, cover, obsidianCoverRect)
-
-        // 2. Top-Right MEZURA Header
-        eraseCoonsSmooth(working, 0.780f, 0.042f, 0.935f, 0.075f)
-        drawPlateText(c, w, h, "MEZURA", 0.922f, 0.060f, 0.0155f, Color.rgb(158, 132, 108), Typeface.DEFAULT_BOLD, Paint.Align.RIGHT, 0.14f)
-
-        // 3. Keep native "I've read" (y=0.145) & "Gave it" (y=0.478) untouched! Erase ONLY Title & Author [0.472, 0.178, 0.938, 0.440]
-        eraseCoonsSmooth(working, 0.472f, 0.178f, 0.938f, 0.440f)
-        val bottomY = drawPlateAutoFitTitle(c, w, h, stats.bookTitle, 0.485f, 0.195f, 0.435f, 0.042f, Color.rgb(255, 248, 240), Typeface.DEFAULT_BOLD, maxLines = 2)
-        drawPlateText(c, w, h, stats.authorName, 0.485f, (bottomY + 0.030f).coerceAtMost(0.365f), 0.026f, Color.rgb(224, 200, 178), Typeface.DEFAULT)
-
-        // Restore stars next to "Gave it" (zero blur, crisp vector)
-        eraseCoonsSmooth(working, 0.610f, 0.455f, 0.890f, 0.505f)
-        drawCrispFiveStarsLeftToRight(
-            c, w, h, stats.starRating,
-            slotCentersX = floatArrayOf(0.638f, 0.692f, 0.746f, 0.800f, 0.854f),
-            centerYNorm = 0.480f, outerRadiusNormW = 0.0185f,
-            litFillColor = Color.rgb(228, 178, 102),
-            unlitFillColor = Color.rgb(32, 20, 14),
-            unlitStrokeColor = Color.rgb(138, 102, 66)
+    private fun compositeStyle8(
+        c: Canvas,
+        working: Bitmap,
+        master: Bitmap,
+        w: Float,
+        h: Float,
+        stats: BookCompletionStats,
+        cover: Bitmap?
+    ) {
+        // 1. Heal the protruding top strip of the baked dark slot [y = 0.078f..0.117f, x = 0.075f..0.435f]
+        //    using horizontal warm-espresso interpolation so zero black band appears above the cover!
+        val yTop1 = (0.078f * h).toInt().coerceIn(1, working.height - 2)
+        val yTop2 = (0.117f * h).toInt().coerceIn(yTop1 + 1, working.height - 1)
+        val xLeft = (0.075f * w).toInt().coerceIn(2, working.width - 4)
+        val xRight = (0.435f * w).toInt().coerceIn(xLeft + 1, working.width - 3)
+        for (py in yTop1 until yTop2) {
+            val pL = working.getPixel(xLeft - 2, py)
+            val pR = working.getPixel(xRight + 2, py)
+            val lR = Color.red(pL); val lG = Color.green(pL); val lB = Color.blue(pL)
+            val rR = Color.red(pR); val rG = Color.green(pR); val rB = Color.blue(pR)
+            val span = (xRight - xLeft).coerceAtLeast(1)
+            for (px in xLeft until xRight) {
+                val u = (px - xLeft).toFloat() / span.toFloat()
+                val cr = ((1f - u) * lR + u * rR).toInt().coerceIn(0, 255)
+                val cg = ((1f - u) * lG + u * rG).toInt().coerceIn(0, 255)
+                val cb = ((1f - u) * lB + u * rB).toInt().coerceIn(0, 255)
+                working.setPixel(px, py, Color.argb(255, cr, cg, cb))
+            }
+        }
+        // Restore the continuous 1px gold header rule at y = 0.0792f across x = 0.074f..0.436f
+        c.drawLine(
+            0.074f * w, 0.0792f * h, 0.436f * w, 0.0792f * h,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(115, 198, 152, 92)
+                strokeWidth = (0.001f * h).coerceAtLeast(1.2f)
+            }
         )
 
-        // 4. Caliper Timeline Dates
-        eraseCoonsSmooth(working, 0.072f, 0.524f, 0.928f, 0.556f)
-        drawPlateText(c, w, h, stats.startDateFormatted, 0.078f, 0.542f, 0.0145f, Color.rgb(200, 175, 150), Typeface.DEFAULT_BOLD, Paint.Align.LEFT, 0.08f)
-        drawPlateText(c, w, h, "${stats.longestStreakDays} DAYS", 0.500f, 0.542f, 0.0145f, Color.rgb(230, 208, 186), Typeface.DEFAULT_BOLD, Paint.Align.CENTER, 0.12f)
-        drawPlateText(c, w, h, stats.endDateFormatted, 0.922f, 0.542f, 0.0145f, Color.rgb(200, 175, 150), Typeface.DEFAULT_BOLD, Paint.Align.RIGHT, 0.08f)
+        // 2. Draw Book Cover edge-to-edge into the EXACT 3D book front face
+        //    [left = 0.0778f, top = 0.1160f, right = 0.4324f, bottom = 0.5056f] (84, 167, 467, 728)
+        //    so it sits 100% flush with the 3D cream page stack on the right and bottom!
+        if (cover != null) {
+            val exactCoverRect = RectF(0.0778f * w, 0.1160f * h, 0.4324f * w, 0.5056f * h)
+            drawCenterCropBitmap(c, cover, exactCoverRect, 0f)
+        }
 
-        // 5. Primary Metrics
-        eraseCoonsSmooth(working, 0.072f, 0.620f, 0.430f, 0.742f)
-        drawPlateText(c, w, h, stats.totalPagesRead.toString(), 0.078f, 0.685f, 0.092f, Color.rgb(242, 156, 80), Typeface.DEFAULT_BOLD)
+        // 3. Header & Metadata (Unchanged from working v1.0.9 layout, with NO seconds in time)
+        eraseCoonsSmooth(working, 0.760f, 0.045f, 0.935f, 0.075f)
+        drawPlateText(c, w, h, "MEZURA", 0.922f, 0.060f, 0.016f, Color.rgb(158, 132, 108), Typeface.DEFAULT_BOLD, Paint.Align.RIGHT, 0.14f)
 
-        eraseCoonsSmooth(working, 0.462f, 0.640f, 0.938f, 0.742f)
-        drawPlateText(c, w, h, stats.totalReadingTimeFormatted, 0.478f, 0.692f, 0.046f, Color.rgb(240, 149, 69), Typeface.DEFAULT_BOLD)
+        val bottomY = drawPlateAutoFitTitle(c, w, h, stats.bookTitle, 0.485f, 0.195f, 0.435f, 0.044f, Color.rgb(255, 248, 240), Typeface.DEFAULT_BOLD, maxLines = 2)
+        drawPlateText(c, w, h, stats.authorName, 0.485f, (bottomY + 0.032f).coerceAtMost(0.365f), 0.028f, Color.rgb(224, 200, 178), Typeface.DEFAULT)
 
-        // 6. Bottom 4 Columns Aligned Exactly to Column Starts (0.078f, 0.306f, 0.518f, 0.732f)
-        eraseCoonsSmooth(working, 0.072f, 0.814f, 0.282f, 0.870f)
-        eraseCoonsSmooth(working, 0.296f, 0.814f, 0.494f, 0.870f)
-        eraseCoonsSmooth(working, 0.508f, 0.814f, 0.706f, 0.870f)
-        eraseCoonsSmooth(working, 0.720f, 0.814f, 0.932f, 0.870f)
+        for (i in 0 until 5) {
+            drawArchivalFacetedStar(
+                canvas = c,
+                cx = (0.642f + i * 0.054f) * w,
+                cy = 0.480f * h,
+                outerR = 0.0145f * h,
+                lit = i < stats.starRating.coerceIn(0, 5)
+            )
+        }
 
-        drawPlateText(c, w, h, "${stats.averagePagesPerHour} pages/h", 0.078f, 0.844f, 0.022f, Color.rgb(255, 248, 240), Typeface.DEFAULT_BOLD)
-        drawPlateText(c, w, h, "${stats.mostPagesInOneDay} pages", 0.306f, 0.844f, 0.022f, Color.rgb(255, 248, 240), Typeface.DEFAULT_BOLD)
-        drawPlateText(c, w, h, "${stats.mostMinutesInOneDay} min", 0.518f, 0.844f, 0.022f, Color.rgb(255, 248, 240), Typeface.DEFAULT_BOLD)
+        drawPlateText(c, w, h, stats.startDateFormatted, 0.078f, 0.542f, 0.015f, Color.rgb(200, 175, 150), Typeface.DEFAULT_BOLD, Paint.Align.LEFT, 0.08f)
+        drawPlateText(c, w, h, "${stats.longestStreakDays} DAYS", 0.500f, 0.542f, 0.015f, Color.rgb(230, 208, 186), Typeface.DEFAULT_BOLD, Paint.Align.CENTER, 0.12f)
+        drawPlateText(c, w, h, stats.endDateFormatted, 0.922f, 0.542f, 0.015f, Color.rgb(200, 175, 150), Typeface.DEFAULT_BOLD, Paint.Align.RIGHT, 0.08f)
+
+        val totalMins = stats.totalReadingMinutes.coerceAtLeast(0)
+        val timeNoSeconds = "%02dh %02dm".format(totalMins / 60, totalMins % 60)
+
+        drawPlateText(c, w, h, stats.totalPagesRead.toString(), 0.078f, 0.685f, 0.095f, Color.rgb(242, 156, 80), Typeface.DEFAULT_BOLD)
+        drawPlateText(c, w, h, timeNoSeconds, 0.478f, 0.692f, 0.048f, Color.rgb(240, 149, 69), Typeface.DEFAULT_BOLD)
+
+        drawPlateText(c, w, h, "${stats.averagePagesPerHour} pages/h", 0.078f, 0.848f, 0.024f, Color.rgb(255, 248, 240), Typeface.DEFAULT_BOLD)
+        drawPlateText(c, w, h, "${stats.mostPagesInOneDay} pages", 0.306f, 0.848f, 0.024f, Color.rgb(255, 248, 240), Typeface.DEFAULT_BOLD)
+        drawPlateText(c, w, h, "${stats.mostMinutesInOneDay} min", 0.518f, 0.848f, 0.024f, Color.rgb(255, 248, 240), Typeface.DEFAULT_BOLD)
         val dayUnit = if (stats.longestStreakDays == 1) "day" else "days"
-        drawPlateText(c, w, h, "${stats.longestStreakDays} $dayUnit", 0.732f, 0.844f, 0.022f, Color.rgb(240, 149, 69), Typeface.DEFAULT_BOLD)
+        drawPlateText(c, w, h, "${stats.longestStreakDays} $dayUnit", 0.730f, 0.848f, 0.024f, Color.rgb(240, 149, 69), Typeface.DEFAULT_BOLD)
 
-        eraseCoonsSmooth(working, 0.340f, 0.932f, 0.660f, 0.968f)
-        drawPlateText(c, w, h, "RECORDED ON MEZURA", 0.500f, 0.948f, 0.0135f, Color.rgb(140, 114, 90), Typeface.DEFAULT_BOLD, Paint.Align.CENTER, 0.16f)
+        eraseCoonsSmooth(working, 0.348f, 0.932f, 0.652f, 0.968f)
+        drawPlateText(c, w, h, "RECORDED ON MEZURA", 0.500f, 0.948f, 0.014f, Color.rgb(140, 114, 90), Typeface.DEFAULT_BOLD, Paint.Align.CENTER, 0.16f)
     }
-
-    // =========================================================================
     // 9. ORBITAL TELEMETRY & CYAN-AMBER BLUEPRINT RADAR (`style_9.jpg`)
     // =========================================================================
     private fun compositeStyle9(c: Canvas, working: Bitmap, master: Bitmap, w: Float, h: Float, stats: BookCompletionStats, cover: Bitmap?) {
@@ -1758,6 +2023,18 @@ object MezuraMasterPlateRenderer {
 
 
 object MezuraMasterPlateEngine {
+    private val memoryCache = object : android.util.LruCache<String, Bitmap>(14) {}
+
+    fun getCached(key: String): Bitmap? = synchronized(memoryCache) { memoryCache.get(key) }
+
+    fun putCache(key: String, bmp: Bitmap) {
+        synchronized(memoryCache) { memoryCache.put(key, bmp) }
+    }
+
+    fun makeCacheKey(stats: BookCompletionStats, styleId: Int): String {
+        return "${stats.bookId}_${styleId}_${stats.hashCode()}"
+    }
+
     fun renderMasterPlate(
         context: Context,
         stats: BookCompletionStats,
@@ -1765,13 +2042,30 @@ object MezuraMasterPlateEngine {
         widthPx: Int = 1080,
         heightPx: Int = 1440
     ): Bitmap {
+        val key = makeCacheKey(stats, style.masterPlateId)
+        getCached(key)?.let { return it }
+
         val coverBmp = stats.coverBitmap?.asAndroidBitmap()
             ?: BookStore.loadCoverBitmap(context, stats.bookId)
-        return MezuraMasterPlateRenderer.renderMasterPlate(
+        val rendered = MezuraMasterPlateRenderer.renderMasterPlate(
             context = context,
             styleId = style.masterPlateId,
             stats = stats,
             coverBitmap = coverBmp
         ) ?: Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+
+        putCache(key, rendered)
+        return rendered
+    }
+
+    fun prefetchAsync(context: Context, stats: BookCompletionStats) {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            BookStatsDesignStyle.entries.forEach { st ->
+                val key = makeCacheKey(stats, st.masterPlateId)
+                if (getCached(key) == null) {
+                    renderMasterPlate(context, stats, st)
+                }
+            }
+        }
     }
 }

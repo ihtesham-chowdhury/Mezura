@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -295,6 +296,11 @@ fun MezuraSharePromptSheet(
     onChooseDesignAndShare: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    LaunchedEffect(stats) {
+        MezuraMasterPlateEngine.prefetchAsync(context, stats)
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -411,6 +417,10 @@ fun MezuraBookStatsStudioDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isSharing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(stats) {
+        MezuraMasterPlateEngine.prefetchAsync(context, stats)
+    }
 
     Dialog(
         onDismissRequest = onDismiss,

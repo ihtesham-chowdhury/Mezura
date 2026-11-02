@@ -52,13 +52,20 @@ fun MezuraBookStatsCardRenderer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var masterBitmap by remember(stats, style) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val initialKey = remember(stats, style) {
+        MezuraMasterPlateEngine.makeCacheKey(stats, style.masterPlateId)
+    }
+    var masterBitmap by remember(stats, style) {
+        mutableStateOf<android.graphics.Bitmap?>(MezuraMasterPlateEngine.getCached(initialKey))
+    }
 
     LaunchedEffect(stats, style) {
-        withContext(Dispatchers.Default) {
-            val bmp = MezuraMasterPlateEngine.renderMasterPlate(context, stats, style)
-            withContext(Dispatchers.Main) {
-                masterBitmap = bmp
+        if (masterBitmap == null) {
+            withContext(Dispatchers.Default) {
+                val bmp = MezuraMasterPlateEngine.renderMasterPlate(context, stats, style)
+                withContext(Dispatchers.Main) {
+                    masterBitmap = bmp
+                }
             }
         }
     }

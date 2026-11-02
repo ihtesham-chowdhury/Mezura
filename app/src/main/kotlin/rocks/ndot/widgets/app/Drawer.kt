@@ -1,5 +1,17 @@
 package rocks.ndot.widgets.app
 
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+import rocks.ndot.widgets.kit.Fonts
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -171,133 +183,243 @@ fun DrawerBar(
             if (idx >= 0) idx else 0
         }
 
+        val scrollState = rememberScrollState()
+        val coroutineScope = rememberCoroutineScope()
+
+        val itemOffsetsPx = remember(Family.entries.size) { IntArray(Family.entries.size) }
+        val itemWidthsPx = remember(Family.entries.size) { IntArray(Family.entries.size) }
+        var viewportWidthPx by remember { mutableIntStateOf(0) }
+
+        // Automatically center the active tab in the middle of the pill viewport
+        // (or pin cleanly to the far-left / far-right edge via coerceIn(0, scrollState.maxValue))
+        androidx.compose.runtime.LaunchedEffect(selectedFamilyIndex, viewportWidthPx, scrollState.maxValue) {
+            if (viewportWidthPx > 0 && selectedFamilyIndex in Family.entries.indices) {
+                val itemCenter = itemOffsetsPx[selectedFamilyIndex] + itemWidthsPx[selectedFamilyIndex] / 2f
+                val desiredScroll = (itemCenter - viewportWidthPx / 2f)
+                    .roundToInt()
+                    .coerceIn(0, scrollState.maxValue)
+                scrollState.animateScrollTo(
+                    value = desiredScroll,
+                    animationSpec = spring(
+                        dampingRatio = 0.86f,
+                        stiffness = 380f
+                    )
+                )
+            }
+        }
+
         Box(
             modifier = Modifier
                 .widthIn(max = maxWidth)
+                .fillMaxWidth()
                 .padding(horizontal = 2.dp),
-            contentAlignment = Alignment.BottomCenter
+            contentAlignment = Alignment.Center
         ) {
-            // 1. Static Liquid Glass Pill Surface (no Genie funnel, no wave crest)
-            Canvas(
-                modifier = Modifier
-                    .matchParentSize()
-            ) {
-                val w = size.width
-                val h = size.height
-                val barH = 64.dp.toPx()
-                val barTop = h - barH
-                val r = barH / 2f
-                val pillPath = Path().apply {
-                    addRoundRect(
-                        androidx.compose.ui.geometry.RoundRect(
-                            left = 0f,
-                            top = barTop,
-                            right = w,
-                            bottom = h,
-                            radiusX = r,
-                            radiusY = r
-                        )
-                    )
-                }
-
-                // Smoked Liquid Glass Fill (#E61B1F28 to #F50C0E13)
-                drawPath(
-                    path = pillPath,
-                    brush = Brush.verticalGradient(
-                        listOf(Color(0xE61B1F28), Color(0xF50C0E13)),
-                        startY = barTop,
-                        endY = h
-                    )
-                )
-                // Refractive Specular Glass Border
-                drawPath(
-                    path = pillPath,
-                    brush = Brush.verticalGradient(
-                        listOf(Color(0x33FFFFFF), Color(0x18FFFFFF)),
-                        startY = barTop,
-                        endY = h
-                    ),
-                    style = Stroke(width = 1.2.dp.toPx())
-                )
-            }
-
-            // 2. Interactive Foreground Row
             Row(
-                Modifier
+                modifier = Modifier
+                    .height(62.dp)
                     .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(horizontal = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .clip(RoundedCornerShape(31.dp))
+                    .background(Color(0xFF141519).copy(alpha = 0.96f))
+                    .padding(start = 10.dp, end = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                HomeDot(
-                    active = current == null,
-                    onClick = {
-                        Feedback.press(context, Feedback.Sound.KEY_UP, Feedback.Haptic.TICK)
-                        onHome()
-                    },
-                    onLongClick = {
-                        AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_STARTUP_ROUTE, "home", "Home set as default startup screen")
-                    },
-                )
-
-                val lazyListState = rememberLazyListState()
-
-                androidx.compose.runtime.LaunchedEffect(selectedFamilyIndex) {
-                    if (current != null) {
-                        lazyListState.animateScrollToItem(selectedFamilyIndex, scrollOffset = -80)
+                // 1. Left Circular Machined Red-Dot Beacon Button
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1C1E24))
+                        .combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                Feedback.tick(context)
+                                onHome()
+                            },
+                            onLongClick = {
+                                AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_STARTUP_ROUTE, "home", "Home set as default startup screen")
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        // Outer subtle ring
+                        drawCircle(
+                            color = Color(0xFF32353E),
+                            radius = size.minDimension / 2f - 1.dp.toPx(),
+                            style = Stroke(width = 1.2.dp.toPx())
+                        )
+                        // Soft red ambient bloom
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(Color(0x66E5533D), Color.Transparent),
+                                center = center,
+                                radius = 12.dp.toPx()
+                            ),
+                            radius = 12.dp.toPx(),
+                            center = center
+                        )
+                        // Core glowing red dot
+                        drawCircle(
+                            color = Color(0xFFE5533D),
+                            radius = 5.5.dp.toPx(),
+                            center = center
+                        )
                     }
                 }
 
-                LazyRow(
-                    state = lazyListState,
+                Spacer(Modifier.width(8.dp))
+
+                // 2. Scrollable Tab Strip with 20.dp Edge Dissolve Masks & Generous Spacing
+                Box(
                     modifier = Modifier
                         .weight(1f)
+                        .fillMaxHeight()
+                        .onGloballyPositioned { coords ->
+                            viewportWidthPx = coords.size.width
+                        }
                         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                         .drawWithContent {
                             drawContent()
-                            val fadeW = 8.dp.toPx()
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    0.0f to Color.Transparent,
-                                    (fadeW / size.width.coerceAtLeast(1f)).coerceIn(0f, 0.4f) to Color.Black,
-                                    (1f - fadeW / size.width.coerceAtLeast(1f)).coerceIn(0.6f, 1f) to Color.Black,
-                                    1.0f to Color.Transparent,
-                                ),
-                                blendMode = BlendMode.DstIn,
-                            )
+                            val fadePx = 20.dp.toPx()
+                            val w = size.width
+                            // Left edge fade mask (only when scrolled away from the far-left start)
+                            if (scrollState.value > 4) {
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(Color.Transparent, Color.Black),
+                                        startX = 0f,
+                                        endX = fadePx
+                                    ),
+                                    topLeft = Offset.Zero,
+                                    size = Size(fadePx, size.height),
+                                    blendMode = BlendMode.DstIn
+                                )
+                            }
+                            // Right edge fade mask (only when more items exist to the right)
+                            if (scrollState.value < scrollState.maxValue - 4) {
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(Color.Black, Color.Transparent),
+                                        startX = w - fadePx,
+                                        endX = w
+                                    ),
+                                    topLeft = Offset(w - fadePx, 0f),
+                                    size = Size(fadePx, size.height),
+                                    blendMode = BlendMode.DstIn
+                                )
+                            }
                         }
-                                                .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    itemsIndexed(Family.entries) { index, family ->
-                        FamilyLabel(
-                            family.label,
-                            active = current?.family == family,
-                            open = openFamily == family,
-                            onClick = {
-                                Feedback.haptic(context, Feedback.Haptic.TICK)
-                                val tools = family.tools
-                                when {
-                                    tools.size == 1 -> onTool(tools.first())
-                                    current?.family != family -> {
-                                        val defaultToolId = if (family == Family.TIME) {
-                                            AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_TIME_INSTRUMENT, Tool.HOURGLASS.id)
-                                        } else {
-                                            tools.first().id
-                                        }
-                                        val target = Tool.byId(defaultToolId) ?: tools.first()
-                                        onTool(target)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .horizontalScroll(scrollState)
+                            // Generous horizontal padding at start/end + 22.dp spacing between items
+                            // so labels NEVER look squished or cramped together!
+                            .padding(horizontal = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(22.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Family.entries.forEachIndexed { index, family ->
+                            val isSelected = current?.family == family
+
+                            Column(
+                                modifier = Modifier
+                                    .onGloballyPositioned { coords ->
+                                        itemOffsetsPx[index] = coords.positionInParent().x.roundToInt()
+                                        itemWidthsPx[index] = coords.size.width
                                     }
-                                    openFamily == family -> onOpenFamily(null)
-                                    else -> onOpenFamily(family)
+                                    .combinedClickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = {
+                                            Feedback.tick(context)
+                                            val tools = family.tools
+                                            when {
+                                                tools.size == 1 -> onTool(tools.first())
+                                                current?.family != family -> {
+                                                    val defaultToolId = if (family == Family.TIME) {
+                                                        AppPrefs.getDefault(context, AppPrefs.KEY_DEFAULT_TIME_INSTRUMENT, Tool.HOURGLASS.id)
+                                                    } else {
+                                                        tools.first().id
+                                                    }
+                                                    val target = Tool.byId(defaultToolId) ?: tools.first()
+                                                    onTool(target)
+                                                }
+                                                openFamily == family -> onOpenFamily(null)
+                                                else -> onOpenFamily(family)
+                                            }
+                                            // Immediately animate scroll to center the clicked item
+                                            if (viewportWidthPx > 0) {
+                                                val center = itemOffsetsPx[index] + itemWidthsPx[index] / 2f
+                                                val target = (center - viewportWidthPx / 2f)
+                                                    .roundToInt()
+                                                    .coerceIn(0, scrollState.maxValue)
+                                                coroutineScope.launch {
+                                                    scrollState.animateScrollTo(
+                                                        value = target,
+                                                        animationSpec = spring(
+                                                            dampingRatio = 0.86f,
+                                                            stiffness = 380f
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onLongClick = {
+                                            val route = if (family.tools.size == 1) family.tools.first().id else family.routeId
+                                            val human = family.label.lowercase().replaceFirstChar { it.uppercase() }
+                                            AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_STARTUP_ROUTE, route, "$human set as default startup screen")
+                                        }
+                                    )
+                                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    // Glowing Red Dot Indicator next to the active/clicked tab
+                                    if (isSelected) {
+                                        Canvas(modifier = Modifier.size(6.dp)) {
+                                            drawCircle(
+                                                color = Color(0xFFE5533D),
+                                                radius = 3.dp.toPx()
+                                            )
+                                        }
+                                    }
+
+                                    BasicText(
+                                        text = family.label.uppercase(),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        style = TextStyle(
+                                            fontFamily = Fonts.mono,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            letterSpacing = 0.14.sp,
+                                            color = if (isSelected) Color(0xFFF4F1EA) else Color(0xFF8A8D98)
+                                        )
+                                    )
                                 }
-                            },
-                            onLongClick = {
-                                val route = if (family.tools.size == 1) family.tools.first().id else family.routeId
-                                val human = family.label.lowercase().replaceFirstChar { it.uppercase() }
-                                AppPrefs.setDefault(context, AppPrefs.KEY_DEFAULT_STARTUP_ROUTE, route, "$human set as default startup screen")
-                            },
-                        )
+
+                                Spacer(Modifier.height(5.dp))
+
+                                // Brass/Amber underline bar under the active tab
+                                Box(
+                                    modifier = Modifier
+                                        .width(if (isSelected) 22.dp else 0.dp)
+                                        .height(2.5.dp)
+                                        .clip(RoundedCornerShape(1.25.dp))
+                                        .background(
+                                            if (isSelected) Color(0xFFE8B25C) else Color.Transparent
+                                        )
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -368,12 +490,12 @@ private fun FamilyLabel(
                 onLongClick = onLongClick,
             )
             .background(if (pressed || open) Color(0x18FFFFFF) else Color.Transparent)
-            .padding(horizontal = 8.dp, vertical = 7.dp),
+            .padding(horizontal = 5.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         BasicText(
             text = text,
-            style = labelStyle(color, 11.sp, FontWeight.SemiBold),
+            style = labelStyle(color, 10.sp, FontWeight.SemiBold),
             maxLines = 1,
             softWrap = false
         )

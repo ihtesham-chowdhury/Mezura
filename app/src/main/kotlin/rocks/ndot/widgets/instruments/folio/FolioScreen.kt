@@ -1,11 +1,17 @@
 package rocks.ndot.widgets.instruments.folio
 
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.SystemClock
 import android.widget.Toast
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
@@ -22,14 +28,17 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -54,30 +63,32 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.Dispatchers
-import java.io.File
-import java.io.FileOutputStream
-import kotlin.math.max
-import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
@@ -729,6 +740,52 @@ fun FolioScreen(
                 completionFlowState = BookCompletionFlowState.Idle
             }
         )
+
+        // F1: BackHandler strictly unwinding Reading states locally — NEVER jumping to Home!
+        val focusManager = LocalFocusManager.current
+        val keyboardController = LocalSoftwareKeyboardController.current
+        @OptIn(ExperimentalLayoutApi::class)
+        val isKeyboardVisible = WindowInsets.isImeVisible
+
+        BackHandler(enabled = true) {
+            when {
+                // 1. Any open modal sheet or Share Book Report overlay closes first
+                completionFlowState != BookCompletionFlowState.Idle -> {
+                    completionFlowState = BookCompletionFlowState.Idle
+                }
+                showAddSheet -> showAddSheet = false
+                showOverflowMenu -> showOverflowMenu = false
+                showSortMenu -> showSortMenu = false
+                contextBook != null -> contextBook = null
+                focusBook != null -> focusBook = null
+                editBook != null -> editBook = null
+                logPastBook != null -> logPastBook = null
+                bookActionTarget != null -> bookActionTarget = null
+
+                // 2. If keyboard is visible, hide it and stay in place
+                isKeyboardVisible -> {
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+                }
+
+                // 3. Active search clears and collapses back to the full Shelf
+                isSearchActive || searchQuery.isNotEmpty() -> {
+                    focusManager.clearFocus()
+                    searchQuery = ""
+                    isSearchActive = false
+                }
+
+                // 4. Counter or Stats sub-tab returns to the Shelf sub-tab
+                selectedTabIdx != 0 -> {
+                    selectedTabIdx = 0
+                }
+
+                // 5. Already at Reading Shelf root: never jump to Home. Send task to background.
+                else -> {
+                    (context as? Activity)?.moveTaskToBack(true)
+                }
+            }
+        }
     }
 }
 
@@ -749,6 +806,52 @@ private fun ContextActionRow(label: String, textColor: Color = Ink.TEXT_WARM, on
 // Shelf View (Modeled strictly on R4 Bookly)
 // -----------------------------------------------------------------------------
 
+/**
+ * Dissolves scrolling Shelf content smoothly into the #0A0A0C background at the
+ * top and bottom scroll edges — ZERO golden hairlines, ZERO frosted band artifacts.
+ */
+fun Modifier.scrollEdgeFade(
+    topFadeHeight: Dp = 28.dp,
+    bottomFadeHeight: Dp = 28.dp
+): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val topPx = topFadeHeight.toPx()
+        val botPx = bottomFadeHeight.toPx()
+        val h = size.height
+
+        // Top edge multi-stop smooth dissolve (transparent at top edge -> opaque by topPx)
+        drawRect(
+            brush = Brush.verticalGradient(
+                0.00f to Color.Transparent,
+                0.35f to Color.Black.copy(alpha = 0.25f),
+                0.70f to Color.Black.copy(alpha = 0.75f),
+                1.00f to Color.Black,
+                startY = 0f,
+                endY = topPx
+            ),
+            topLeft = Offset.Zero,
+            size = Size(size.width, topPx),
+            blendMode = BlendMode.DstIn
+        )
+
+        // Bottom edge smooth dissolve above the dock vignette
+        drawRect(
+            brush = Brush.verticalGradient(
+                0.00f to Color.Black,
+                0.30f to Color.Black.copy(alpha = 0.75f),
+                0.65f to Color.Black.copy(alpha = 0.25f),
+                1.00f to Color.Transparent,
+                startY = h - botPx,
+                endY = h
+            ),
+            topLeft = Offset(0f, h - botPx),
+            size = Size(size.width, botPx),
+            blendMode = BlendMode.DstIn
+        )
+    }
+
 @Composable
 fun LiquidGlassReadingHeader(
     modifier: Modifier = Modifier,
@@ -765,52 +868,6 @@ fun LiquidGlassReadingHeader(
                     1.00f to Color(0x280E1018)
                 )
             )
-            .drawBehind {
-                val h = size.height
-                val lipY = h - 2.dp.toPx()
-
-                // 1. Specular top highlight (1px white catchlight)
-                drawLine(
-                    brush = Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color(0x35FFFFFF),
-                            Color(0x60FFFFFF),
-                            Color(0x35FFFFFF),
-                            Color.Transparent
-                        )
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, 0f),
-                    strokeWidth = 1.dp.toPx()
-                )
-
-                // 2. Frosted liquid glass golden amber lip line
-                drawLine(
-                    brush = Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color(0x30FFFFFF),
-                            Color(0x80F5C478),
-                            Color(0xB0D69A4A),
-                            Color(0x80F5C478),
-                            Color(0x30FFFFFF),
-                            Color.Transparent
-                        )
-                    ),
-                    start = Offset(0f, lipY),
-                    end = Offset(size.width, lipY),
-                    strokeWidth = 1.2.dp.toPx()
-                )
-
-                // 3. Ambient soft shadow under the lip
-                drawLine(
-                    color = Color(0x45000000),
-                    start = Offset(0f, lipY + 1.2.dp.toPx()),
-                    end = Offset(size.width, lipY + 1.2.dp.toPx()),
-                    strokeWidth = 2.5.dp.toPx()
-                )
-            }
             .padding(bottom = 6.dp)
     ) {
         content()
@@ -938,6 +995,7 @@ private fun ShelfView(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .scrollEdgeFade(topFadeHeight = 28.dp, bottomFadeHeight = 28.dp)
             .verticalScroll(scrollState)
             .padding(horizontal = 16.dp)
     ) {

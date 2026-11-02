@@ -99,6 +99,12 @@ data class BookCompletionStats(
     val mostMinutesInOneDay: Int
         get() = maxMinutesInOneDay
 
+    val totalReadingSeconds: Long
+        get() = totalReadingTimeSeconds
+
+    val totalReadingMinutes: Long
+        get() = totalReadingTimeSeconds / 60L
+
     val totalReadingTimeMillis: Long
         get() = totalReadingTimeSeconds * 1000L
 

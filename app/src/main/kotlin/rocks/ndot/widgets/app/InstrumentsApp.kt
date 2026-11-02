@@ -119,7 +119,7 @@ fun InstrumentsApp(requested: MutableState<String?>) {
         }
     }
 
-    BackHandler(enabled = screen != HOME || openFamily != null) {
+    BackHandler(enabled = (screen != HOME && screen != Tool.FOLIO.id) || openFamily != null) {
         if (openFamily != null) openFamily = null else screen = HOME
     }
 
