@@ -135,9 +135,9 @@ Compiled APKs will be output to `app/build/outputs/apk/debug/` and `app/build/ou
 
 | File | Size | SHA-256 Checksum |
 | :--- | :--- | :--- |
-| **`Mezura-v1.0.10-release.apk`** | 127.84 MB (134,045,504 bytes) | `168b0af4cfcd93063e9a31da615695c6eb9af1daccb89ea86e63dd2bdd95c91f` |
-| **`Mezura-v1.0.10-debug.apk`** | 132.44 MB (138,873,665 bytes) | `5471ab6ef2b384d08db446bfa1704a624913650150289fb89902e88aa2106949` |
-| **`Mezura.apk`** | 127.84 MB (134,045,504 bytes) | `168b0af4cfcd93063e9a31da615695c6eb9af1daccb89ea86e63dd2bdd95c91f` |
+| **`Mezura-v1.0.10-release.apk`** | 127.84 MB (134,045,504 bytes) | `d65d49b2925e4545c228f5bafa7cea59dc18eee4db837bbf57972be1974aff61` |
+| **`Mezura-v1.0.10-debug.apk`** | 132.44 MB (138,873,665 bytes) | `252903f8ad61b470b05e6ec584072286c2825379612e06d455a09e8725b2a9ed` |
+| **`Mezura.apk`** | 127.84 MB (134,045,504 bytes) | `d65d49b2925e4545c228f5bafa7cea59dc18eee4db837bbf57972be1974aff61` |
 
 ---
 

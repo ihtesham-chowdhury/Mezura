@@ -7,6 +7,8 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -217,7 +219,7 @@ object GrandLibraryPayloadCalculator {
             genrePages[g] = (genrePages[g] ?: 0) + p
         }
         val totalGenrePages = genrePages.values.sum().coerceAtLeast(1)
-        val topGenres = genrePages.entries.sortedByDescending { it.value }.take(4).map { (genre, p) ->
+        val topGenres = genrePages.entries.sortedByDescending { it.value }.map { (genre, p) ->
             GenreDistributionItem(
                 genreName = genre,
                 percentage = ((p.toFloat() / totalGenrePages) * 100f).roundToInt(),
@@ -232,8 +234,8 @@ object GrandLibraryPayloadCalculator {
             GenreDistributionItem("Memoir", 18, 1, 175),
             GenreDistributionItem("History", 10, 1, 95)
         )
-        while (topGenres.size < 4) {
-            topGenres.add(defaults[topGenres.size])
+        if (topGenres.isEmpty()) {
+            topGenres.addAll(defaults)
         }
 
         val realOrDefPages = if (totalPagesRead > 0) totalPagesRead else 70
@@ -433,16 +435,15 @@ private fun eraseHorizSmooth(bitmap: Bitmap, l: Float, t: Float, r: Float, b: Fl
 }
 
 private object GrandLibraryPlateLoader {
+    const val PAGE_EXTENSION_FACTOR = 1.06f
+
     @Volatile
     private var cachedBundle: GrandLibraryPlateBundle? = null
 
     /**
-     * Completely removes both the baked top brass ruler AND the faint horizontal shadow/seam line
-     * at my(0.124f)..my(0.1355f) directly above PAGES READ and READING TIME:
-     * - NEVER samples left/right outer margins per row y (which hit the dark card borders at my(0.125f)..my(0.133f)).
-     * - Interpolates vertically from the clean upper parchment strip [cleanSampleTopNorm..cleanSampleBottomNorm]
-     *   to the spotless interior parchment strip [0.14f..0.40f, 0.137f..0.141f] so there is
-     *   ZERO horizontal step or faded line above the KPI cards and ZERO vertical streak over the screws/watch.
+     * Erases ONLY the baked top brass ruler and upper parchment gap down to my(0.123f)
+     * using the warm upper parchment tone [cleanSampleTopNorm..cleanSampleBottomNorm] —
+     * NEVER touching the KPI card top borders and NEVER sampling the white highlight strip.
      */
     private fun eraseRulerZoneFromTopParchment(
         bmp: Bitmap,
@@ -462,83 +463,48 @@ private object GrandLibraryPlateLoader {
         val x2 = (rightNorm * w).toInt().coerceIn(x1 + 1, w - 7)
         val y2 = (bottomNorm * h).toInt().coerceIn(y1 + 1, h - 7)
 
-        // 1. Sample clean top parchment color from the unblemished interior span [0.14f..0.40f]
         val topY1 = (cleanSampleTopNorm * h).toInt().coerceIn(2, y1 - 2)
         val topY2 = (cleanSampleBottomNorm * h).toInt().coerceIn(topY1 + 1, y1 - 1)
         val cleanX1 = (0.14f * w).toInt().coerceIn(x1, x2 - 1)
         val cleanX2 = (0.40f * w).toInt().coerceIn(cleanX1 + 1, x2)
 
-        var topR = 0f; var topG = 0f; var topB = 0f; var topCnt = 0
+        var warmR = 0f; var warmG = 0f; var warmB = 0f; var cnt = 0
         for (sy in topY1..topY2) {
             for (sx in cleanX1..cleanX2 step 2) {
                 val c = bmp.getPixel(sx, sy)
-                topR += (c shr 16) and 0xFF
-                topG += (c shr 8) and 0xFF
-                topB += c and 0xFF
-                topCnt++
+                warmR += (c shr 16) and 0xFF
+                warmG += (c shr 8) and 0xFF
+                warmB += c and 0xFF
+                cnt++
             }
         }
-        if (topCnt > 0) {
-            topR /= topCnt; topG /= topCnt; topB /= topCnt
+        if (cnt > 0) {
+            warmR /= cnt; warmG /= cnt; warmB /= cnt
         }
 
-        // 2. Sample clean bottom parchment color EXCLUSIVELY from the screw-free, watch-free interior span
-        //    [0.14f..0.40f, 0.137f..0.141f] right below y2 so the bottom boundary matches 100%
-        //    with ZERO horizontal seam and ZERO dark smudge from screws or pocket watch!
-        val botY1 = (0.137f * h).toInt().coerceIn(y2 + 1, h - 4)
-        val botY2 = (0.141f * h).toInt().coerceIn(botY1 + 1, h - 2)
-        var botR = 0f; var botG = 0f; var botB = 0f; var botCnt = 0
-        for (sy in botY1..botY2) {
-            for (sx in cleanX1..cleanX2 step 2) {
-                val c = bmp.getPixel(sx, sy)
-                botR += (c shr 16) and 0xFF
-                botG += (c shr 8) and 0xFF
-                botB += c and 0xFF
-                botCnt++
-            }
-        }
-        if (botCnt > 0) {
-            botR /= botCnt; botG /= botCnt; botB /= botCnt
-        } else {
-            botR = topR; botG = topG; botB = topB
-        }
-
-        // Reach 100% botR/G/B by 0.123f so the entire band 0.123f..0.1355f is completely uniform
-        // and matches the card-top parchment below y2 with zero horizontal line!
-        val flatStartY = (0.123f * h).toInt().coerceIn(y1 + 1, y2)
-        val protectStartY = (0.1315f * h).toInt().coerceIn(y1, y2)
         val featherX = (0.008f * w).toInt().coerceAtLeast(4)
-        val featherTop = 4
+        val featherY = 4
         val rnd = java.util.Random(42L)
 
         for (y in y1..y2) {
-            val t = ((y - y1).toFloat() / (flatStartY - y1).coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
-            val rowR = topR + (botR - topR) * t
-            val rowG = topG + (botG - topG) * t
-            val rowB = topB + (botB - topB) * t
-
-            val topAlpha = ((y - y1 + 1).toFloat() / featherTop).coerceIn(0f, 1f)
+            val topAlpha = ((y - y1 + 1).toFloat() / featherY).coerceIn(0f, 1f)
+            val botAlpha = ((y2 - y + 1).toFloat() / featherY).coerceIn(0f, 1f)
+            val vAlpha = minOf(topAlpha, botAlpha)
 
             for (x in x1..x2) {
+                val leftAlpha = ((x - x1 + 1).toFloat() / featherX).coerceIn(0f, 1f)
+                val rightAlpha = ((x2 - x + 1).toFloat() / featherX).coerceIn(0f, 1f)
+                val alpha = vAlpha * minOf(leftAlpha, rightAlpha)
+
                 val orig = bmp.getPixel(x, y)
                 val oR = (orig shr 16) and 0xFF
                 val oG = (orig shr 8) and 0xFF
                 val oB = orig and 0xFF
 
-                // At the very bottom rows (y >= protectStartY), protect any dark brass pixels belonging
-                // to the 4 corner screws or the top ring of the pocket watch (where blue channel < 148).
-                if (y >= protectStartY && oB < 148) {
-                    continue
-                }
-
-                val leftAlpha = ((x - x1 + 1).toFloat() / featherX).coerceIn(0f, 1f)
-                val rightAlpha = ((x2 - x + 1).toFloat() / featherX).coerceIn(0f, 1f)
-                val alpha = topAlpha * minOf(leftAlpha, rightAlpha)
-
-                val n = (rnd.nextGaussian() * 0.9).toInt()
-                val tR = (rowR + n).coerceIn(0f, 255f)
-                val tG = (rowG + n).coerceIn(0f, 255f)
-                val tB = (rowB + n).coerceIn(0f, 255f)
+                val n = (rnd.nextGaussian() * 0.85).toInt()
+                val tR = (warmR + n).coerceIn(0f, 255f)
+                val tG = (warmG + n).coerceIn(0f, 255f)
+                val tB = (warmB + n).coerceIn(0f, 255f)
 
                 val outR = (oR + (tR - oR) * alpha).toInt().coerceIn(0, 255)
                 val outG = (oG + (tG - oG) * alpha).toInt().coerceIn(0, 255)
@@ -547,6 +513,208 @@ private object GrandLibraryPlateLoader {
                 bmp.setPixel(x, y, (0xFF shl 24) or (outR shl 16) or (outG shl 8) or outB)
             }
         }
+    }
+
+    /**
+     * Makes PAGES READ and READING TIME 100% independent 4-sided plaques identical to
+     * AVERAGE PACE and BOOKS COMPLETED by cloning the clean top borders, rounded corners,
+     * and open center vertical channel from Row 2 [0.219f..0.2365f] onto Row 1
+     * [0.119f..0.1365f], eliminating both the white highlight band and any horizontal bridge.
+     */
+    private fun restoreIndependentTopKpiCardBorders(bmp: Bitmap) {
+        val w = bmp.width
+        val h = bmp.height
+        if (w < 16 || h < 16) return
+
+        val x1 = (0.036f * w).toInt().coerceIn(4, w - 5)
+        val x2 = (0.964f * w).toInt().coerceIn(x1 + 1, w - 5)
+
+        val dstY1 = (0.119f * h).toInt().coerceIn(4, h - 20)
+        val dstY2 = (0.1365f * h).toInt().coerceIn(dstY1 + 4, h - 10)
+        val spanY = dstY2 - dstY1
+
+        val srcY1 = (0.219f * h).toInt().coerceIn(4, h - spanY - 5)
+
+        // Sample warm upper parchment color [0.024f..0.035f, 0.15f..0.40f]
+        var warmR = 0f; var warmG = 0f; var warmB = 0f; var wCnt = 0
+        val wy1 = (0.024f * h).toInt().coerceIn(2, h - 4)
+        val wy2 = (0.035f * h).toInt().coerceIn(wy1 + 1, h - 2)
+        val wx1 = (0.15f * w).toInt().coerceIn(2, w - 4)
+        val wx2 = (0.40f * w).toInt().coerceIn(wx1 + 1, w - 2)
+        for (sy in wy1..wy2) {
+            for (sx in wx1..wx2 step 2) {
+                val c = bmp.getPixel(sx, sy)
+                warmR += (c shr 16) and 0xFF
+                warmG += (c shr 8) and 0xFF
+                warmB += c and 0xFF
+                wCnt++
+            }
+        }
+        if (wCnt > 0) {
+            warmR /= wCnt; warmG /= wCnt; warmB /= wCnt
+        }
+
+        // Sample interior card tone of Card 1 & Card 2 just below dstY2 [0.1375f..0.1405f]
+        val intY1 = (0.1375f * h).toInt().coerceIn(2, h - 4)
+        val intY2 = (0.1405f * h).toInt().coerceIn(intY1 + 1, h - 2)
+        var cardLR = 0f; var cardLG = 0f; var cardLB = 0f; var cLCnt = 0
+        var cardRR = 0f; var cardRG = 0f; var cardRB = 0f; var cRCnt = 0
+        for (sy in intY1..intY2) {
+            for (sx in (0.16f * w).toInt()..(0.36f * w).toInt() step 2) {
+                val c = bmp.getPixel(sx.coerceIn(0, w - 1), sy)
+                cardLR += (c shr 16) and 0xFF; cardLG += (c shr 8) and 0xFF; cardLB += c and 0xFF; cLCnt++
+            }
+            for (sx in (0.58f * w).toInt()..(0.76f * w).toInt() step 2) {
+                val c = bmp.getPixel(sx.coerceIn(0, w - 1), sy)
+                cardRR += (c shr 16) and 0xFF; cardRG += (c shr 8) and 0xFF; cardRB += c and 0xFF; cRCnt++
+            }
+        }
+        if (cLCnt > 0) { cardLR /= cLCnt; cardLG /= cLCnt; cardLB /= cLCnt }
+        if (cRCnt > 0) { cardRR /= cRCnt; cardRG /= cRCnt; cardRB /= cRCnt }
+
+        val gapX1 = (0.486f * w).toInt()
+        val gapX2 = (0.514f * w).toInt()
+        val protectY = dstY1 + (spanY * 0.52f).toInt()
+
+        // First copy the source rows into a temporary buffer so reading & writing never overlap
+        val srcRows = Array(spanY + 1) { dy ->
+            val sy = (srcY1 + dy).coerceIn(0, h - 1)
+            IntArray(w) { x -> bmp.getPixel(x, sy) }
+        }
+
+        for (dy in 0..spanY) {
+            val yDst = (dstY1 + dy).coerceIn(0, h - 1)
+            val wy = minOf(1f, (dy + 1) / 3f, (spanY - dy + 1) / 3f)
+            val fracY = dy.toFloat() / spanY.coerceAtLeast(1).toFloat()
+
+            for (x in x1..x2) {
+                val origDst = bmp.getPixel(x, yDst)
+                val oB = origDst and 0xFF
+
+                // Protect the 4 top brass screws and pocket-watch crown where original pixel is dark
+                val inScrewOrWatchZone =
+                    (x in (0.050f * w).toInt()..(0.092f * w).toInt()) ||
+                    (x in (0.448f * w).toInt()..(0.486f * w).toInt()) ||
+                    (x in (0.514f * w).toInt()..(0.552f * w).toInt()) ||
+                    (x in (0.820f * w).toInt()..(0.948f * w).toInt())
+                if (yDst >= protectY && inScrewOrWatchZone && oB < 168) {
+                    continue
+                }
+
+                val srcP = srcRows[dy][x]
+                var sR = ((srcP shr 16) and 0xFF).toFloat()
+                var sG = ((srcP shr 8) and 0xFF).toFloat()
+                var sB = (srcP and 0xFF).toFloat()
+
+                // Above the card top border (fracY <= 0.24f) or inside the center vertical channel (gapX1..gapX2),
+                // blend the bright gap color smoothly into warmR/G/B so there is ZERO white line!
+                if (fracY <= 0.24f || x in gapX1..gapX2) {
+                    val tWarm = if (fracY <= 0.24f) (0.88f - fracY * 1.4f).coerceIn(0f, 0.88f)
+                                else (1f - fracY).coerceIn(0f, 0.85f)
+                    sR = sR * (1f - tWarm) + warmR * tWarm
+                    sG = sG * (1f - tWarm) + warmG * tWarm
+                    sB = sB * (1f - tWarm) + warmB * tWarm
+                } else if (fracY >= 0.62f) {
+                    // Inside the card interior below the top border, blend smoothly into Card 1 / Card 2 interior
+                    val inLeftCardInt = x in (0.093f * w).toInt()..(0.447f * w).toInt()
+                    val inRightCardInt = x in (0.553f * w).toInt()..(0.819f * w).toInt()
+                    if (inLeftCardInt || inRightCardInt) {
+                        val tInt = ((fracY - 0.62f) / 0.38f).coerceIn(0f, 1f) * 0.65f
+                        val cR = if (inLeftCardInt) cardLR else cardRR
+                        val cG = if (inLeftCardInt) cardLG else cardRG
+                        val cB = if (inLeftCardInt) cardLB else cardRB
+                        sR = sR * (1f - tInt) + cR * tInt
+                        sG = sG * (1f - tInt) + cG * tInt
+                        sB = sB * (1f - tInt) + cB * tInt
+                    }
+                }
+
+                val oR = (origDst shr 16) and 0xFF
+                val oG = (origDst shr 8) and 0xFF
+                val outR = (oR + (sR - oR) * wy).toInt().coerceIn(0, 255)
+                val outG = (oG + (sG - oG) * wy).toInt().coerceIn(0, 255)
+                val outB = (oB + (sB - oB) * wy).toInt().coerceIn(0, 255)
+
+                bmp.setPixel(x, yDst, (0xFF shl 24) or (outR shl 16) or (outG shl 8) or outB)
+            }
+        }
+    }
+
+    /**
+     * Extends the folio bitmap downwards by PAGE_EXTENSION_FACTOR (1.06f):
+     * - Leaves 0..my(0.818f) 100% untouched so READING CADENCE and its bottom border/shadow are never cut off.
+     * - Fills my(0.818f)..bottomMargin by cloning spotless, full-width authentic paper rows from
+     *   [my(0.317f)..my(0.323f)], [my(0.382f)..my(0.389f)], and [my(0.554f)..my(0.561f)] so the gap
+     *   below READING CADENCE has 100% real paper texture and natural left/right deckle edges.
+     * - Grafts the original bottom torn-paper edge [my(0.985f)..1.000f] onto the bottom of the extended bitmap.
+     */
+    private fun buildExtendedFolioPlateWithRealPaper(base: Bitmap): Bitmap {
+        val w = base.width
+        val origH = base.height
+        val extH = (origH * PAGE_EXTENSION_FACTOR).toInt().coerceAtLeast(origH + 16)
+
+        val result = Bitmap.createBitmap(w, extH, Bitmap.Config.ARGB_8888)
+        val rowBuf = IntArray(w)
+
+        // 1. Copy 0..my(0.818f) directly so READING CADENCE and its bottom border/shadow are 100% intact
+        val cadenceBottomY = (0.818f * origH).toInt().coerceIn(1, origH - 20)
+        for (y in 0 until cadenceBottomY) {
+            base.getPixels(rowBuf, 0, w, 0, y, w, 1)
+            result.setPixels(rowBuf, 0, w, 0, y, w, 1)
+        }
+
+        // 2. Collect spotless full-width authentic paper donor rows (including left/right deckle borders)
+        val donorRanges = listOf(
+            (0.554f * origH).toInt()..(0.561f * origH).toInt(),
+            (0.382f * origH).toInt()..(0.389f * origH).toInt(),
+            (0.317f * origH).toInt()..(0.323f * origH).toInt()
+        )
+        val donorRows = ArrayList<IntArray>()
+        for (rng in donorRanges) {
+            for (sy in rng) {
+                val clampedY = sy.coerceIn(0, origH - 1)
+                val r = IntArray(w)
+                base.getPixels(r, 0, w, 0, clampedY, w, 1)
+                donorRows.add(r)
+            }
+        }
+        // Ping-pong donor rows (forward then backward) so vertical paper grain is 100% seamless
+        val pingPongDonors = ArrayList<IntArray>(donorRows.size * 2)
+        pingPongDonors.addAll(donorRows)
+        pingPongDonors.addAll(donorRows.asReversed())
+
+        val bottomEdgeH = ((1.0f - 0.985f) * origH).toInt().coerceIn(8, 40)
+        val fillEndY = extH - bottomEdgeH
+
+        for (y in cadenceBottomY until fillEndY) {
+            val donor = pingPongDonors[(y - cadenceBottomY) % pingPongDonors.size]
+            if (y < cadenceBottomY + 5) {
+                // 5px vertical feather right under READING CADENCE shadow so transition is invisible
+                val alpha = (y - cadenceBottomY + 1) / 5f
+                base.getPixels(rowBuf, 0, w, 0, y.coerceAtMost(origH - 1), w, 1)
+                for (x in 0 until w) {
+                    val oP = rowBuf[x]
+                    val dP = donor[x]
+                    val r = (((oP shr 16) and 0xFF) * (1f - alpha) + ((dP shr 16) and 0xFF) * alpha).toInt()
+                    val g = (((oP shr 8) and 0xFF) * (1f - alpha) + ((dP shr 8) and 0xFF) * alpha).toInt()
+                    val b = ((oP and 0xFF) * (1f - alpha) + (dP and 0xFF) * alpha).toInt()
+                    rowBuf[x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                }
+                result.setPixels(rowBuf, 0, w, 0, y, w, 1)
+            } else {
+                result.setPixels(donor, 0, w, 0, y, w, 1)
+            }
+        }
+
+        // 3. Graft the original bottom torn-paper edge onto the bottom of the extended bitmap
+        for (dy in 0 until bottomEdgeH) {
+            val srcY = (origH - bottomEdgeH + dy).coerceIn(0, origH - 1)
+            val dstY = (fillEndY + dy).coerceIn(0, extH - 1)
+            base.getPixels(rowBuf, 0, w, 0, srcY, w, 1)
+            result.setPixels(rowBuf, 0, w, 0, dstY, w, 1)
+        }
+
+        return result
     }
 
     /**
@@ -670,19 +838,23 @@ private object GrandLibraryPlateLoader {
             val base = cleanBasePlate
             val master = rawBasePlate
 
-            // --- REFINEMENT 1: Wipe camera hole and erase ruler zone completely without horizontal seam ---
+            // 1. Wipe top camera hole & baked brass ruler (stopping strictly at 0.123f)
             eraseHorizSmooth(base, 0.455f, 0.021f, 0.545f, 0.049f)
             eraseRulerZoneFromTopParchment(
                 bmp = base,
-                leftNorm = 0.048f,
-                topNorm = 0.040f,
-                rightNorm = 0.952f,
-                bottomNorm = 0.1355f,
+                leftNorm = 0.046f,
+                topNorm = 0.038f,
+                rightNorm = 0.954f,
+                bottomNorm = 0.123f,
                 cleanSampleTopNorm = 0.023f,
                 cleanSampleBottomNorm = 0.036f
             )
 
-            // --- FIX 2B: Clean the 4 KPI number slots using pure interior card parchment ---
+            // 2. Restore 100% independent 4-sided top borders + open center gap on
+            //    PAGES READ and READING TIME (cloned from AVERAGE PACE & BOOKS COMPLETED)
+            restoreIndependentTopKpiCardBorders(base)
+
+            // 3. Clean the 4 KPI number slots using pure interior card parchment
             cloneCardParchmentFeathered(
                 dstBitmap = base, srcMaster = master,
                 dstL = 0.110f, dstT = 0.170f, dstR = 0.205f, dstB = 0.208f,
@@ -708,10 +880,13 @@ private object GrandLibraryPlateLoader {
                 srcL = 0.595f, srcT = 0.264f, srcR = 0.755f, srcB = 0.310f
             ) // Card 4: BOOKS COMPLETED ("4")
 
-            // --- REFINEMENT 2: Erase bottom Genre Distribution covering full extended island footprint ---
-            eraseHorizSmooth(base, 0.032f, 0.805f, 0.968f, 0.994f)
-
             rawBasePlate.recycle()
+
+            // 4. Extend the folio page downwards by PAGE_EXTENSION_FACTOR (1.06f),
+            //    keeping READING CADENCE 100% intact down to 0.818f and filling
+            //    the lower section with real, authentic full-width paper texture!
+            val extendedBase = buildExtendedFolioPlateWithRealPaper(base)
+            base.recycle()
 
             val caliperCursor = try {
                 context.assets.open("reading_stats/stats_caliper_cursor.png").use {
@@ -744,13 +919,34 @@ private object GrandLibraryPlateLoader {
             }
 
             return GrandLibraryPlateBundle(
-                cleanBasePlate = cleanBasePlate,
+                cleanBasePlate = extendedBase,
                 caliperCursor = caliperCursor,
                 genreThumb = genreThumb,
                 spineSprites = spineSprites
             ).also { cachedBundle = it }
         }
     }
+}
+
+/**
+ * Dynamically scales [paint.textSize] down if [text] exceeds [maxWidthPx],
+ * guaranteeing that large lifetime stats (e.g., 250,000 pages, 2,500h 45m, 500 books)
+ * never overflow their plaque or collide with the pocket watch, protractor, or book stack.
+ */
+private fun autoFitKpiTextPaint(
+    paint: Paint,
+    text: String,
+    desiredTextSizePx: Float,
+    maxWidthPx: Float,
+    minScaleFactor: Float = 0.52f
+): Paint {
+    paint.textSize = desiredTextSizePx
+    val measured = paint.measureText(text)
+    if (measured > maxWidthPx && measured > 0f) {
+        val scale = (maxWidthPx / measured).coerceAtLeast(minScaleFactor)
+        paint.textSize = desiredTextSizePx * scale
+    }
+    return paint
 }
 
 @Composable
@@ -859,13 +1055,16 @@ fun GrandLibraryFolioStatsScreen(
         rivetWave.animateTo(1.4f, tween(760, easing = LinearOutSlowInEasing))
     }
 
-    // 7. 4 Genre Walnut Ruler Springs
-    val genreClaspProgress = remember { List(4) { Animatable(0f) } }
+    // 7. Multi-Genre Walnut Ruler Springs & Vertical Scroll State
+    var genreScrollRowOffset by remember { mutableFloatStateOf(0f) }
+    val genreClaspProgress = remember(payload.genres.size) {
+        List(payload.genres.size.coerceAtLeast(4)) { Animatable(0f) }
+    }
     LaunchedEffect(selectedRange, payload.genres) {
         genreClaspProgress.forEachIndexed { idx, anim ->
             val targetPct = (payload.genres.getOrNull(idx)?.percentage ?: 0) / 100f
             launch {
-                delay(idx * 45L)
+                delay(idx * 35L)
                 anim.animateTo(targetPct.coerceIn(0f, 1f), spring(dampingRatio = 0.72f, stiffness = 290f))
             }
         }
@@ -879,7 +1078,7 @@ fun GrandLibraryFolioStatsScreen(
             .verticalScroll(scrollState)
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val canvasH = maxWidth * (1320f / 696f)
+            val canvasH = maxWidth * ((1320f * GrandLibraryPlateLoader.PAGE_EXTENSION_FACTOR) / 696f)
             // 3D Raised Archival Parchment Sheet (Fix 4)
             Box(
                 modifier = Modifier
@@ -896,8 +1095,9 @@ fun GrandLibraryFolioStatsScreen(
                         .pointerInput(selectedRange, payload) {
                             detectTapGestures(
                                 onPress = { pos ->
+                                    val refH = size.height / GrandLibraryPlateLoader.PAGE_EXTENSION_FACTOR
                                     val nx = pos.x / size.width
-                                    val ny = pos.y / size.height
+                                    val ny = pos.y / refH
                                     if (ny in 0.325f..0.390f) {
                                         if (nx < 0.5f) {
                                             csvPressed = true
@@ -919,8 +1119,9 @@ fun GrandLibraryFolioStatsScreen(
                                     }
                                 },
                                 onTap = { pos ->
+                                    val refH = size.height / GrandLibraryPlateLoader.PAGE_EXTENSION_FACTOR
                                     val nx = pos.x / size.width
-                                    val ny = pos.y / size.height
+                                    val ny = pos.y / refH
                                     when {
                                         // 1. Top Brass Vernier Range Rule (Instant tap target snap)
                                         ny in 0.020f..0.125f -> {
@@ -949,21 +1150,26 @@ fun GrandLibraryFolioStatsScreen(
                                             selectedMonthIndex = if (selectedMonthIndex == mIdx) null else mIdx
                                             soundHaptics.onBookSpineTap(mIdx)
                                         }
-                                        // 4. Genre Walnut Rulers Tap (matches extended GENRE DISTRIBUTION island at 0.822f..0.992f)
-                                        ny in 0.820f..0.992f -> {
-                                            val genreRowCenters = floatArrayOf(0.869f, 0.899f, 0.929f, 0.959f)
-                                            var hitGenre = -1
-                                            if (nx in 0.036f..0.964f && ny in 0.850f..0.990f) {
-                                                for (i in genreRowCenters.indices) {
-                                                    if (kotlin.math.abs(ny - genreRowCenters[i]) <= 0.015f) {
-                                                        hitGenre = i
-                                                        break
-                                                    }
-                                                }
-                                            }
-                                            if (hitGenre != -1) {
-                                                selectedGenreIndex = if (selectedGenreIndex == hitGenre) null else hitGenre
+                                        // 4. Genre Walnut Rulers Tap (matches extended GENRE DISTRIBUTION island)
+                                        ny in 0.838f..1.042f -> {
+                                            val allGenresCount = if (payload.genres.isNotEmpty()) payload.genres.size else 4
+                                            val maxScrollRows = (allGenresCount - 4).coerceAtLeast(0).toFloat()
+                                            val clampedScroll = genreScrollRowOffset.coerceIn(0f, maxScrollRows)
+
+                                            // 1. Tap on top-right header pager ("▲ 1–4 OF 7 ▼") steps through genres when > 4 genres exist
+                                            if (allGenresCount > 4 && nx in 0.65f..0.964f && ny in 0.840f..0.872f) {
+                                                genreScrollRowOffset = if (clampedScroll >= maxScrollRows) 0f else (clampedScroll + 1f).coerceAtMost(maxScrollRows)
                                                 soundHaptics.onGenreCaliperSlide()
+                                            } else if (nx in 0.036f..0.964f && ny in 0.872f..1.036f) {
+                                                // 2. Tap on any visible genre row toggles its book-count detail badge
+                                                val firstRowCenterNorm = 0.892f
+                                                val rowStepNorm = 0.0365f
+                                                val tappedFloatIdx = ((ny - firstRowCenterNorm) / rowStepNorm) + clampedScroll
+                                                val candidateIdx = tappedFloatIdx.roundToInt()
+                                                if (candidateIdx in 0 until allGenresCount && kotlin.math.abs(tappedFloatIdx - candidateIdx) <= 0.42f) {
+                                                    selectedGenreIndex = if (selectedGenreIndex == candidateIdx) null else candidateIdx
+                                                    soundHaptics.onGenreCaliperSlide()
+                                                }
                                             }
                                         }
                                         else -> {
@@ -977,7 +1183,8 @@ fun GrandLibraryFolioStatsScreen(
                         .pointerInput(selectedRange, payload) {
                             detectHorizontalDragGestures(
                                 onDragStart = { pos ->
-                                    val ny = pos.y / size.height
+                                    val refH = size.height / GrandLibraryPlateLoader.PAGE_EXTENSION_FACTOR
+                                    val ny = pos.y / refH
                                     if (ny in 0.020f..0.130f) {
                                         velocityTracker.resetTracking()
                                         scope.launch { rangeIndex.stop() }
@@ -1018,8 +1225,9 @@ fun GrandLibraryFolioStatsScreen(
                                     scrubbedDayIndex = null
                                 },
                                 onHorizontalDrag = { change, dragAmount ->
+                                    val refH = size.height / GrandLibraryPlateLoader.PAGE_EXTENSION_FACTOR
                                     val nx = change.position.x / size.width
-                                    val ny = change.position.y / size.height
+                                    val ny = change.position.y / refH
                                     when {
                                         // Dragging Top Brass Vernier (1:1 continuous mapping in pixel space, F6)
                                         ny in 0.020f..0.130f -> {
@@ -1064,16 +1272,40 @@ fun GrandLibraryFolioStatsScreen(
                                 }
                             )
                         }
+                        .pointerInput(payload.genres.size) {
+                            val allGenresCount = if (payload.genres.isNotEmpty()) payload.genres.size else 4
+                            if (allGenresCount > 4) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val refH = size.height / GrandLibraryPlateLoader.PAGE_EXTENSION_FACTOR
+                                    if (down.position.y / refH >= 0.838f) {
+                                        val pointerId = down.id
+                                        val rowStepPx = 0.0365f * refH
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.find { it.id == pointerId } ?: break
+                                            if (!change.pressed) break
+                                            val dy = change.position.y - change.previousPosition.y
+                                            if (kotlin.math.abs(dy) > 0.5f) {
+                                                change.consume()
+                                                genreScrollRowOffset = (genreScrollRowOffset - dy / rowStepPx)
+                                                    .coerceIn(0f, (allGenresCount - 4).toFloat())
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                 ) {
                     val w = size.width
-                    val h = size.height
+                    val fullCanvasH = size.height
                     drawIntoCanvas { canvas ->
                         val nc = canvas.nativeCanvas
                         if (bundle != null) {
                             drawHybridGrandLibraryFolio(
                                 nc = nc,
                                 w = w,
-                                h = h,
+                                fullCanvasH = fullCanvasH,
                                 bundle = bundle,
                                 payload = payload,
                                 selectedRange = selectedRange,
@@ -1090,7 +1322,8 @@ fun GrandLibraryFolioStatsScreen(
                                 selectedMonthIndex = selectedMonthIndex,
                                 rivetWave = rivetWave.value,
                                 genreProgress = genreClaspProgress.map { it.value },
-                                selectedGenreIndex = selectedGenreIndex
+                                selectedGenreIndex = selectedGenreIndex,
+                                genreScrollRowOffset = genreScrollRowOffset
                             )
                         }
                     }
@@ -1264,7 +1497,7 @@ private fun drawArtifactFreeBrassVernierRuler(
 private fun drawHybridGrandLibraryFolio(
     nc: Canvas,
     w: Float,
-    h: Float,
+    fullCanvasH: Float,
     bundle: GrandLibraryPlateBundle,
     payload: GrandLibraryStatsPayload,
     selectedRange: FolioStatsRange,
@@ -1281,8 +1514,10 @@ private fun drawHybridGrandLibraryFolio(
     selectedMonthIndex: Int?,
     rivetWave: Float,
     genreProgress: List<Float>,
-    selectedGenreIndex: Int?
+    selectedGenreIndex: Int?,
+    genreScrollRowOffset: Float
 ) {
+    val h = fullCanvasH / GrandLibraryPlateLoader.PAGE_EXTENSION_FACTOR
     val sx = w / 696f
     val sy = h / 1320f
 
@@ -1290,13 +1525,13 @@ private fun drawHybridGrandLibraryFolio(
     val serifBold = Typeface.create(Typeface.SERIF, Typeface.BOLD)
     val sansBold = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
 
-    // 0. Base Master Plate (stats_bg.png: 696 x 1320)
-    nc.drawBitmap(bundle.cleanBasePlate, null, RectF(0f, 0f, w, h), bitmapPaint)
+    // 0. Base Master Plate (stats_bg.png extended with authentic real paper texture)
+    nc.drawBitmap(bundle.cleanBasePlate, null, RectF(0f, 0f, w, fullCanvasH), bitmapPaint)
 
     // 1. Authentic Top Brass Vernier Ruler & 3D Caliper Cursor (Request 5.1, F5, F6)
     drawArtifactFreeBrassVernierRuler(nc, w, h, selectedRange, rangeIndexFloat)
 
-    // 2. Top 4 Metric Cards (Clean dynamic letterpress serif numbers, #2A221C)
+    // 2. Top 4 Metric Cards (Clean dynamic letterpress serif numbers with auto-fit scaling)
     val cardPaint52 = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = serifBold
         color = Color.rgb(0x2A, 0x22, 0x1C)
@@ -1310,26 +1545,26 @@ private fun drawHybridGrandLibraryFolio(
         textAlign = Paint.Align.LEFT
     }
     // Card 1: PAGES READ at (48, 254)
-    nc.drawText("%,d".format(animPages), 48f * sx, 254f * sy, cardPaint52)
+    val pagesText = "%,d".format(animPages)
+    autoFitKpiTextPaint(cardPaint52, pagesText, 52f * sy, (0.455f - 0.082f) * w)
+    nc.drawText(pagesText, 48f * sx, 254f * sy, cardPaint52)
 
-    // Card 2: READING TIME at (379, 254) with dynamic scaling for pocket watch clearance (F7)
+    // Card 2: READING TIME at (379, 254) with dynamic scaling stopping before pocket watch at 0.758f
     val hrs = animMinutes / 60
     val mins = animMinutes % 60
     val timeStr = if (hrs > 0) "${hrs}h ${mins.toString().padStart(2, '0')}m" else "${mins}m"
-    val maxTextW = (548f - 18f - 379f) * sx // At least 10.dp clearance to pocket watch at 548f * sx
-    var curTextSize = 48f * sy
-    cardPaint48.textSize = curTextSize
-    while (cardPaint48.measureText(timeStr) > maxTextW && curTextSize > 24f * sy) {
-        curTextSize -= 1.5f * sy
-        cardPaint48.textSize = curTextSize
-    }
+    autoFitKpiTextPaint(cardPaint48, timeStr, 48f * sy, (0.758f - 0.542f) * w)
     nc.drawText(timeStr, 379f * sx, 254f * sy, cardPaint48)
 
-    // Card 3: AVERAGE PACE at (48, 388)
-    nc.drawText("$animPace p/h", 48f * sx, 388f * sy, cardPaint48)
+    // Card 3: AVERAGE PACE at (48, 388) stopping before brass protractor at 0.288f
+    val paceText = "$animPace p/h"
+    autoFitKpiTextPaint(cardPaint48, paceText, 48f * sy, (0.288f - 0.082f) * w)
+    nc.drawText(paceText, 48f * sx, 388f * sy, cardPaint48)
 
-    // Card 4: BOOKS COMPLETED at (379, 388)
-    nc.drawText("%,d".format(animBooks), 379f * sx, 388f * sy, cardPaint52)
+    // Card 4: BOOKS COMPLETED at (379, 388) stopping before book stack at 0.735f
+    val booksText = "%,d".format(animBooks)
+    autoFitKpiTextPaint(cardPaint52, booksText, 52f * sy, (0.735f - 0.542f) * w)
+    nc.drawText(booksText, 379f * sx, 388f * sy, cardPaint52)
 
     // 3. Share Plaques Interactive Press Feedback
     if (csvScale < 0.999f) {
@@ -1545,14 +1780,15 @@ private fun drawHybridGrandLibraryFolio(
         }
     }
 
-    // 7. GENRE DISTRIBUTION: Clean procedural walnut millimeter rulers & brass clasps
+    // 7. GENRE DISTRIBUTION: Clean procedural walnut millimeter rulers & brass clasps with multi-genre scroll
     drawCleanGenreDistribution(
         nc = nc,
         w = w,
         h = h,
         genres = payload.genres,
         genreProgress = genreProgress,
-        selectedGenreIndex = selectedGenreIndex
+        selectedGenreIndex = selectedGenreIndex,
+        genreScrollRowOffset = genreScrollRowOffset
     )
 }
 
@@ -1563,22 +1799,26 @@ private fun drawCleanGenreDistribution(
     h: Float,
     genres: List<GenreDistributionItem>,
     genreProgress: List<Float>,
-    selectedGenreIndex: Int?
+    selectedGenreIndex: Int?,
+    genreScrollRowOffset: Float
 ) {
     // =========================================================================
-    // 6. GENRE DISTRIBUTION ISLAND (Extended Left, Right, and Bottom)
-    //    - Matches exact horizontal width of READING CADENCE: 0.036f..0.964f
-    //    - Keeps top at 0.822f (clean gap below READING CADENCE at 0.802f)
-    //    - Extends bottom to 0.992f with 4 rows at 0.869f..0.959f for generous bottom padding
+    // 6. GENRE DISTRIBUTION ISLAND
+    //    - READING CADENCE bottom border & shadow end at 0.818f * h (100% intact!)
+    //    - Leaves a 0.020f * h (~18px) real paper-textured gap: 0.818f..0.838f
+    //    - Spans 0.036f..0.964f horizontally (flush with READING CADENCE)
+    //    - Spans 0.838f * h .. 1.042f * h vertically on the extended page
+    //    - Supports ANY number of genres (4, 7, 15+) with 7 horological metal palettes
+    //      and smooth vertical scrolling + machined brass scrollbar!
     // =========================================================================
     val genreCardLeft = 0.036f * w
-    val genreCardTop = 0.822f * h
+    val genreCardTop = 0.838f * h
     val genreCardRight = 0.964f * w
-    val genreCardBottom = 0.992f * h
+    val genreCardBottom = 1.042f * h
     val genreCardCorner = 0.022f * w
     val genreCardRect = RectF(genreCardLeft, genreCardTop, genreCardRight, genreCardBottom)
 
-    // Soft ambient drop shadow matching the upper READING CADENCE island
+    // Soft ambient drop shadow matching READING CADENCE
     val islandShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.argb(42, 38, 24, 12)
@@ -1591,7 +1831,7 @@ private fun drawCleanGenreDistribution(
         islandShadowPaint
     )
 
-    // Warm archival parchment surface matching READING CADENCE island
+    // Warm archival parchment surface matching READING CADENCE
     val islandFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         shader = LinearGradient(
@@ -1607,7 +1847,7 @@ private fun drawCleanGenreDistribution(
     }
     nc.drawRoundRect(genreCardRect, genreCardCorner, genreCardCorner, islandFillPaint)
 
-    // Crisp outer walnut/sepia border + subtle inner hairline frame matching upper island
+    // Outer walnut border + inner archival hairline frame
     val islandBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 0.0030f * w
@@ -1637,7 +1877,8 @@ private fun drawCleanGenreDistribution(
     val inkDark = Color.rgb(38, 25, 12)
     val crimsonInk = Color.rgb(168, 48, 36)
 
-    // Section Title: "GENRE DISTRIBUTION" (aligned with READING CADENCE left margin at 0.066f)
+    // Section Title: "GENRE DISTRIBUTION"
+    val genreHeaderY = 0.862f * h
     val genreHeaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = serifBold
         textSize = 0.0175f * h
@@ -1645,63 +1886,93 @@ private fun drawCleanGenreDistribution(
         letterSpacing = 0.06f
         textAlign = Paint.Align.LEFT
     }
-    nc.drawText(
-        "GENRE DISTRIBUTION",
-        0.066f * w,
-        0.844f * h,
-        genreHeaderPaint
+    nc.drawText("GENRE DISTRIBUTION", 0.066f * w, genreHeaderY, genreHeaderPaint)
+
+    val defaultGenres = listOf(
+        GenreDistributionItem("FICTION", 45, 6, 450),
+        GenreDistributionItem("PHILOSOPHY", 30, 4, 300),
+        GenreDistributionItem("HISTORY", 15, 2, 150),
+        GenreDistributionItem("SCIENCE", 10, 1, 100)
     )
+    val allGenres = if (genres.isNotEmpty()) genres else defaultGenres
+    val visibleRowCapacity = 4
+    val maxScrollRows = (allGenres.size - visibleRowCapacity).coerceAtLeast(0).toFloat()
+    val clampedScrollRows = genreScrollRowOffset.coerceIn(0f, maxScrollRows)
 
-    val displayGenres = genres.take(4)
-
-    // Optional active genre book-count readout in top-right of header when a row is tapped
-    val activeIdx = selectedGenreIndex?.takeIf { it in displayGenres.indices }
+    // Top-right header status: shows selected genre book count OR multi-genre scroll pager ("▲ 1–4 OF 7 ▼")
+    val activeIdx = selectedGenreIndex?.takeIf { it in allGenres.indices }
+    val headerRightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = serifBold
+        textSize = 0.0145f * h
+        color = if (activeIdx != null) crimsonInk else Color.rgb(110, 82, 52)
+        textAlign = Paint.Align.RIGHT
+    }
     if (activeIdx != null) {
-        val selG = displayGenres[activeIdx]
+        val selG = allGenres[activeIdx]
         val selPct = (selG.percentage.coerceIn(0, 100))
-        val headerDetailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = serifBold
-            textSize = 0.0150f * h
-            color = crimsonInk
-            textAlign = Paint.Align.RIGHT
-        }
-        val detailText = if (selG.booksCount > 0) "${selG.booksCount} BOOKS ($selPct%)" else "$selPct%"
-        nc.drawText(
-            detailText,
-            0.936f * w,
-            0.844f * h,
-            headerDetailPaint
-        )
+        nc.drawText("${selG.booksCount} BOOKS ($selPct%)", 0.936f * w, genreHeaderY, headerRightPaint)
+    } else if (allGenres.size > visibleRowCapacity) {
+        val firstVis = clampedScrollRows.roundToInt() + 1
+        val lastVis = (firstVis + visibleRowCapacity - 1).coerceAtMost(allGenres.size)
+        nc.drawText("▲ $firstVis–$lastVis OF ${allGenres.size} ▼", 0.936f * w, genreHeaderY, headerRightPaint)
     }
 
-    // 4 Genre rows positioned at 0.869f..0.959f so Row 4 has a full 15px bottom margin above 0.992f!
-    val genreY = floatArrayOf(
-        0.869f * h,
-        0.899f * h,
-        0.929f * h,
-        0.959f * h
+    // 7 Distinct Horological Metallic Bar Palettes (Top Highlight, Mid Body, Bottom Shadow)
+    val metalPalettes = arrayOf(
+        intArrayOf(Color.rgb(237, 208, 138), Color.rgb(198, 152, 70), Color.rgb(154, 112, 40)), // 0: Sovereign Brass
+        intArrayOf(Color.rgb(232, 178, 134), Color.rgb(194, 118, 68), Color.rgb(142, 78, 38)),  // 1: Burnished Copper
+        intArrayOf(Color.rgb(242, 198, 104), Color.rgb(204, 142, 42), Color.rgb(150, 98, 18)),  // 2: Antique Amber-Gold
+        intArrayOf(Color.rgb(214, 180, 128), Color.rgb(164, 126, 74), Color.rgb(116, 86, 44)),  // 3: Archival Bronze
+        intArrayOf(Color.rgb(224, 218, 204), Color.rgb(168, 160, 144), Color.rgb(122, 114, 98)),// 4: Aged Pewter-Brass
+        intArrayOf(Color.rgb(234, 182, 160), Color.rgb(188, 124, 100), Color.rgb(138, 82, 62)), // 5: Rose Vermeil Brass
+        intArrayOf(Color.rgb(188, 208, 168), Color.rgb(126, 154, 106), Color.rgb(84, 110, 68))  // 6: Verdigris Patina Brass
     )
+
+    val firstRowCenterY = 0.892f * h
+    val rowStepY = 0.0365f * h
+    val hasScrollbar = allGenres.size > visibleRowCapacity
     val trackLeft = 0.390f * w
-    val trackRight = 0.842f * w
+    val trackRight = (if (hasScrollbar) 0.825f else 0.842f) * w
     val trackW = trackRight - trackLeft
     val trackH = 0.0225f * h
+    val pctRightX = (if (hasScrollbar) 0.924f else 0.936f) * w
+    val maxLabelWidthPx = (trackLeft - 0.066f * w - 0.016f * w).coerceAtLeast(40f)
 
-    displayGenres.forEachIndexed { idx, g ->
-        val cy = genreY[idx]
+    // Clip rows strictly inside the Genre Distribution island viewport so scrolled rows never bleed out
+    nc.save()
+    nc.clipRect(
+        genreCardLeft + insetPx + 2f,
+        0.872f * h,
+        genreCardRight - insetPx - 2f,
+        genreCardBottom - insetPx - 4f
+    )
+
+    allGenres.forEachIndexed { idx, g ->
+        val cy = firstRowCenterY + (idx - clampedScrollRows) * rowStepY
+        if (cy + trackH < 0.868f * h || cy - trackH > genreCardBottom) return@forEachIndexed
+
         val pct = (g.percentage / 100f).coerceIn(0f, 1f)
         val animPct = genreProgress.getOrElse(idx) { pct }.coerceIn(0f, 1f)
         val pctInt = (animPct * 100f).roundToInt()
         val isSelected = selectedGenreIndex == idx
+        val palette = metalPalettes[idx % metalPalettes.size]
 
-        // Left Genre Label (aligned at 0.066f * w)
+        // Left Genre Label (auto-fitted so long genre names never touch the walnut track)
         val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = serifBold
-            textSize = 0.0190f * h
+            textSize = 0.0188f * h
             color = if (isSelected) crimsonInk else inkDark
             textAlign = Paint.Align.LEFT
         }
-        val displayTitle = if (g.genreName.length > 20) g.genreName.take(19) + "…" else g.genreName.uppercase()
-        nc.drawText(displayTitle, 0.066f * w, cy + labelPaint.textSize * 0.34f, labelPaint)
+        var labelText = g.genreName.uppercase()
+        autoFitKpiTextPaint(labelPaint, labelText, 0.0188f * h, maxLabelWidthPx, minScaleFactor = 0.78f)
+        if (labelPaint.measureText(labelText) > maxLabelWidthPx) {
+            while (labelText.length > 4 && labelPaint.measureText("$labelText…") > maxLabelWidthPx) {
+                labelText = labelText.dropLast(1)
+            }
+            labelText = "$labelText…"
+        }
+        nc.drawText(labelText, 0.066f * w, cy + labelPaint.textSize * 0.34f, labelPaint)
 
         // Recessed Walnut Slide-Rule Slot
         val slotRect = RectF(trackLeft, cy - trackH * 0.50f, trackRight, cy + trackH * 0.50f)
@@ -1747,14 +2018,14 @@ private fun drawCleanGenreDistribution(
         }
         nc.drawRoundRect(slotRect, slotCorner, slotCorner, slotBorderPaint)
 
-        // Knurled Brass Slider Thumb Knob — clamped past slotCorner so at 5% (BENGALI) it NEVER clips the rounded left cap!
+        // Knurled Metallic Slider Thumb Knob — clamped past slotCorner so low % never clips the rounded cap
         val knobW = 0.023f * w
         val knobH = trackH * 1.14f
         val minKnobCenter = slotRect.left + slotCorner + knobW * 0.52f
         val maxKnobCenter = slotRect.right - slotCorner - knobW * 0.52f
         val knobCenterX = (slotRect.left + trackW * animPct).coerceIn(minKnobCenter, maxKnobCenter)
 
-        // Active Brass Bar Fill inside the walnut slot up to knobCenterX
+        // Active Metallic Bar Fill using this genre's horological metal palette
         val barInset = trackH * 0.11f
         val brassRect = RectF(
             slotRect.left + barInset,
@@ -1768,11 +2039,7 @@ private fun drawCleanGenreDistribution(
                 shader = LinearGradient(
                     brassRect.left, brassRect.top,
                     brassRect.left, brassRect.bottom,
-                    intArrayOf(
-                        Color.rgb(232, 198, 128),
-                        Color.rgb(194, 150, 74),
-                        Color.rgb(152, 112, 46)
-                    ),
+                    palette,
                     floatArrayOf(0f, 0.55f, 1f),
                     Shader.TileMode.CLAMP
                 )
@@ -1791,10 +2058,7 @@ private fun drawCleanGenreDistribution(
             shader = LinearGradient(
                 knobRect.left, knobRect.top,
                 knobRect.right, knobRect.bottom,
-                intArrayOf(
-                    Color.rgb(245, 216, 150),
-                    Color.rgb(184, 138, 62)
-                ),
+                intArrayOf(palette[0], palette[1]),
                 floatArrayOf(0f, 1f),
                 Shader.TileMode.CLAMP
             )
@@ -1804,25 +2068,61 @@ private fun drawCleanGenreDistribution(
         val knobBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 0.002f * w
-            color = Color.rgb(92, 62, 24)
+            color = palette[2]
         }
         nc.drawRoundRect(knobRect, knobW * 0.25f, knobW * 0.25f, knobBorderPaint)
 
-        // Center rivet dot on the brass thumb clasp
         val rivetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
-            color = Color.rgb(68, 44, 18)
+            color = Color.rgb(58, 36, 14)
         }
         nc.drawCircle(knobCenterX, cy, knobW * 0.11f, rivetPaint)
 
-        // Right Percentage Readout (aligned at 0.936f * w with plenty of room after trackRight = 0.842f)
+        // Right Percentage Readout
         val pctPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = serifBold
-            textSize = 0.0190f * h
+            textSize = 0.0188f * h
             color = if (isSelected) crimsonInk else inkDark
             textAlign = Paint.Align.RIGHT
         }
-        nc.drawText("$pctInt%", 0.936f * w, cy + pctPaint.textSize * 0.34f, pctPaint)
+        nc.drawText("$pctInt%", pctRightX, cy + pctPaint.textSize * 0.34f, pctPaint)
+    }
+
+    nc.restore()
+
+    // Machined Vertical Brass Scrollbar on far right inside the island when > 4 genres exist
+    if (hasScrollbar) {
+        val sbLeft = 0.942f * w
+        val sbRight = 0.950f * w
+        val sbTop = 0.878f * h
+        val sbBot = 1.022f * h
+        val sbTrackH = (sbBot - sbTop).coerceAtLeast(10f)
+        val sbCorner = (sbRight - sbLeft) * 0.5f
+
+        val sbTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = Color.argb(90, 92, 66, 38)
+        }
+        nc.drawRoundRect(RectF(sbLeft, sbTop, sbRight, sbBot), sbCorner, sbCorner, sbTrackPaint)
+
+        val thumbRatio = (visibleRowCapacity.toFloat() / allGenres.size.toFloat()).coerceIn(0.20f, 1f)
+        val thumbH = sbTrackH * thumbRatio
+        val scrollFrac = if (maxScrollRows > 0f) (clampedScrollRows / maxScrollRows).coerceIn(0f, 1f) else 0f
+        val thumbTop = sbTop + (sbTrackH - thumbH) * scrollFrac
+
+        val sbThumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            shader = LinearGradient(
+                sbLeft, thumbTop, sbRight, thumbTop + thumbH,
+                intArrayOf(
+                    Color.rgb(232, 198, 128),
+                    Color.rgb(174, 128, 52)
+                ),
+                null,
+                Shader.TileMode.CLAMP
+            )
+        }
+        nc.drawRoundRect(RectF(sbLeft, thumbTop, sbRight, thumbTop + thumbH), sbCorner, sbCorner, sbThumbPaint)
     }
 }
 
