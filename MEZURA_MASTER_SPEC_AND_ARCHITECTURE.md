@@ -311,6 +311,6 @@ When modifying, maintaining, or expanding **Mezura**, adhere strictly to these p
 
 | File | Size | SHA-256 Checksum |
 | :--- | :--- | :--- |
-| **`Mezura-v1.0.10-release.apk`** | 127.84 MB (134,045,504 bytes) | `a451bb12365a98444792a83e900f3fd9cb5c61eaf4b9258152dd094cd7e298c4` |
-| **`Mezura-v1.0.10-debug.apk`** | 132.44 MB (138,873,665 bytes) | `e9374ade240eb517f3ca249e40a069c0bff6d4956f4f81a6c67410adb2c19bf7` |
-| **`Mezura.apk`** | 127.84 MB (134,045,504 bytes) | `a451bb12365a98444792a83e900f3fd9cb5c61eaf4b9258152dd094cd7e298c4` |
+| **`Mezura-v1.0.10-release.apk`** | 127.84 MB (134,045,504 bytes) | `168b0af4cfcd93063e9a31da615695c6eb9af1daccb89ea86e63dd2bdd95c91f` |
+| **`Mezura-v1.0.10-debug.apk`** | 132.44 MB (138,873,665 bytes) | `5471ab6ef2b384d08db446bfa1704a624913650150289fb89902e88aa2106949` |
+| **`Mezura.apk`** | 127.84 MB (134,045,504 bytes) | `168b0af4cfcd93063e9a31da615695c6eb9af1daccb89ea86e63dd2bdd95c91f` |
