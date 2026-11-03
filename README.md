@@ -8,7 +8,7 @@
 
 ## Overview
 
-**Mezura** (`com.instrument.mezura`, v1.0.10) is an Android application designed around the physical metaphors of authentic mechanical instruments. Every screen completely avoids generic flat Material Design UI; instead, every tool is engineered as high-precision, tactile hardware:
+**Mezura** (`com.instrument.mezura`, v1.0.11) is an Android application designed around the physical metaphors of authentic mechanical instruments. Every screen completely avoids generic flat Material Design UI; instead, every tool is engineered as high-precision, tactile hardware:
 
 - **Split-flap digit drums, lathe-turned rotary jog wheels, and sunray antique brass gauges.**
 - **Liquid Glass Navigation Dock:** Sleek floating liquid glass navigation bar with settled spring-animated amber indicator, single-line tabs with zero clipping, specular refractive highlights, and light haptic feedback.
@@ -131,13 +131,13 @@ Compiled APKs will be output to `app/build/outputs/apk/debug/` and `app/build/ou
 
 ---
 
-## Verified Build Artifacts (v1.0.10)
+## Verified Build Artifacts (v1.0.11)
 
 | File | Size | SHA-256 Checksum |
 | :--- | :--- | :--- |
-| **`Mezura-v1.0.10-release.apk`** | 127.84 MB (134,045,504 bytes) | `d65d49b2925e4545c228f5bafa7cea59dc18eee4db837bbf57972be1974aff61` |
-| **`Mezura-v1.0.10-debug.apk`** | 132.44 MB (138,873,665 bytes) | `252903f8ad61b470b05e6ec584072286c2825379612e06d455a09e8725b2a9ed` |
-| **`Mezura.apk`** | 127.84 MB (134,045,504 bytes) | `d65d49b2925e4545c228f5bafa7cea59dc18eee4db837bbf57972be1974aff61` |
+| **`Mezura-v1.0.11-release.apk`** | 127.84 MB (134,045,504 bytes) | `b9ea5cffdf48bcb19b136057682b1d7c98f3f88d92a768c6cb6791fe68919565` |
+| **`Mezura-v1.0.11-debug.apk`** | 132.22 MB (138,642,932 bytes) | `fdb72abfe5dfec5d322358d603a1f3a2d53200dcd185dbe8776b92a26ac2eaec` |
+| **`Mezura.apk`** | 127.84 MB (134,045,504 bytes) | `b9ea5cffdf48bcb19b136057682b1d7c98f3f88d92a768c6cb6791fe68919565` |
 
 ---
 
