@@ -109,25 +109,36 @@ The bottom navigation bar in Mezura is a physics-driven, floating liquid glass d
    - **Pointer Persistence:** Tap and drag gestures keyed on `Unit` so gestures never cancel mid-scroll or upon state commits.
 
 ### 3.3. Sub-Tab 3: The Grand Library Folio Stats (`GrandLibraryFolioStatsScreen.kt`)
-1. **Procedural Donor-and-Feather Parchment Restoration:**
-   - Rather than flat color fills or smudged rectangular erasures, `restoreSeamlessMasterParchmentBand` synthesizes spotless archival parchment bands across:
-     - Top Ruler Band: `topFrac = 0.012f, bottomFrac = 0.134f` (eradicates baked camera holes, demo ruler ticks, and baked rivets up to $0.134f$, safely stopping short of the KPI cards at $0.138f$).
-     - Bottom Genre Distribution Band: `topFrac = 0.796f, bottomFrac = 0.982f` (eradicates old genre sliders and artifacts).
-   - **Donor Strip & Boundary Delta:** Samples an authentic, clean donor strip from above the consistency matrix ($y = 1032..1044$, $\approx 0.783f..0.791f \times h$), capturing pristine paper fiber grain and horizontal vignette without any drop shadows or text bleeds. Computes boundary delta luminance offset $(\Delta R, \Delta G, \Delta B)$ against local border pixels and feathers smoothly over 10–12px cosine gradients, achieving zero-seam texture synthesis.
-2. **Procedural 3D Machined Brass Vernier Ruler (`drawArtifactFreeBrassVernierRuler`):**
-   - **4 Discrete Ranges:** `7D` (x=0.145), `30D` (x=0.270), `YEAR` (x=0.405), `ALL` (x=0.540).
-   - **Ruler Body:** Brushed antique brass body (`#DEC896`, `#BEA26A`, `#9C7E48`), 68 engraved double-sided millimeter graduations, "mm" callouts, and soft drop shadow (`Color.argb(80, 42, 26, 10)`).
-   - **Right Slot Track & Sliding Carriage:** Recessed slot track at `0.585f..0.915f * w`. The 3D machined brass carriage glides along `0.655f + progress * 0.135f * w`, featuring a left `<` pointer beak and circular stepped medallion. Zero red lines, zero ghost text, and zero label obstruction.
-   - **Smooth Spring Animation:** Selected range indicator animates with `spring(dampingRatio = 0.76f, stiffness = 380f)`.
-3. **Reading Consistency Matrix:**
-   - Header strictly labeled `"READING CONSISTENCY (365-DOT MATRIX)"` (never "CADENCE").
-   - 53 columns $\times$ 7 rows = 371 cells (or 365 days).
-   - Bounded strictly within `y = 0.737f..0.7886f` to guarantee zero collision with the genre distribution section below.
-4. **Clean Genre Distribution Section (`drawCleanGenreDistribution`):**
-   - **Consistent Typography:** Header `"GENRE DISTRIBUTION"` rendered with `Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)` matching `"READING VELOCITY CURVE"` in size and weight. Genre category titles rendered with clean normal sans-serif; right-aligned percentages rendered in bold sans-serif.
-   - 4 dynamic genre rows (`y = 0.854f, 0.887f, 0.920f, 0.953f * h`).
-   - 3D Carved Walnut Millimeter Ruler Track (`0.405f..0.835f * w`) with dual brass mounting screws, top and bottom engraved millimeter ticks, and 3D brass sliding clasps positioned by animated percentage.
-   - Right-aligned percentage readout (`$displayPct%`).
+1. **Four-Sided Independent KPI Plaques:**
+   - Terminated ruler zone wipe strictly at `0.123f` (strictly above the top cards) to eliminate white-band sampling artifacts.
+   - Implemented `restoreIndependentTopKpiCardBorders` cloning authentic card border rows from Row 2 (`0.219f..0.2365f`) onto Row 1 (`0.119f..0.1365f`), establishing all 4 KPI cards (`PAGES READ`, `READING TIME`, `AVERAGE PACE`, `BOOKS COMPLETED`) as 100% independent 4-sided paper islands with complete top borders.
+   - Built-in perimeter protection for screws and pocket watch crown (`inScrewOrWatchZone && oB < 168`).
+2. **Extended Real Paper Canvas (`PAGE_EXTENSION_FACTOR = 1.06f`):**
+   - Kept `0..0.818f` 100% untouched, perfectly preserving the authentic torn deckle edge and drop shadow of the `READING CADENCE` card.
+   - Extended total plate height downwards and filled `0.818f..fillEndY` by cloning genuine donor paper rows (`[0.554f..0.561f]`, `[0.382f..0.389f]`, `[0.317f..0.323f]`) using seamless ping-pong mirroring.
+   - Grafted the authentic bottom deckle edge (`0.985f..1.000f`) onto the new extended plate base.
+3. **Full Multi-Genre Catalog Scrolling & 7 Horological Metal Finishes:**
+   - Removed `.take(4)` restriction from the calculator; supports any number of genres (7, 10, 20+) without truncation or layout breakage.
+   - Implemented 7 distinct horological metal bar finishes:
+     * Sovereign Brass (`#C8A652`)
+     * Burnished Copper (`#B85C38`)
+     * Antique Amber-Gold (`#D4A034`)
+     * Archival Bronze (`#7D6242`)
+     * Aged Pewter-Brass (`#8C8474`)
+     * Rose Vermeil Brass (`#B86B68`)
+     * Verdigris Patina Brass (`#5B8A72`)
+   - Added two-way navigation: touch drag scrolling with inertia inside the viewport, a micro-machined vertical brass scrollbar slider with bevels, and header pager arrow buttons (`▲` / `▼`).
+   - Brass slider knob is clamped safely past the walnut slot's corner radius (`minKnobCenter = slotRect.left + slotCorner + knobW * 0.52f`), preventing any left end-cap overhang at low percentages (e.g. 5% on Bengali).
+   - Tapping a genre row displays `${selG.booksCount} BOOKS ($selPct%)` in crimson ink right-aligned in the island header while keeping the row's right readout clean as `"$pctInt%"`.
+4. **Holistic Dynamic KPI Auto-Scaling:**
+   - Integrated `autoFitKpiTextPaint` typography engine across all 4 KPI cards to dynamically adjust text size and tracking, preventing text overflow regardless of library size.
+5. **Procedural 3D Machined Brass Vernier Ruler (`drawArtifactFreeBrassVernierRuler`):**
+   - 4 Discrete Ranges: `7D` (x=0.145), `30D` (x=0.270), `YEAR` (x=0.405), `ALL` (x=0.540).
+   - Gliding carriage driven by fractional `rangeIndex` with 1:1 pixel drag mapping and spring snap.
+   - Anchor math maintains >= 6dp clearance right of label edges, eradicating beak collision with `"ALL"`.
+6. **Reading Consistency Matrix:**
+   - Strictly branded `"READING CADENCE (365-DOT MATRIX)"`.
+   - 53 columns x 7 rows = 371 cells with embossed tactile brass pins indicating daily reading activity.
 
 ---
 
